@@ -1,0 +1,6 @@
+{
+  "name": "POS Video AI - AI Video Blueprint Engine",
+  "description": "Platform AI penyusun hook, narasi voice-over, teks overlay, dan alur storyboard video promosi affiliate 9:16 yang siap digunakan di Veo, Flow, dan AI video generator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

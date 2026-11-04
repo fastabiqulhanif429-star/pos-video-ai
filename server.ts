@@ -25,34 +25,61 @@ const ai = new GoogleGenAI({
   },
 });
 
-// Helper to generate content with model fallback chain (gemini-3.7-flash -> gemini-flash-latest -> gemini-3.1-flash-lite)
+// Deteksi error 503 / overload ("high demand", UNAVAILABLE) yang transien & layak di-retry.
+// Catatan: 429 (rate limit free-tier per-menit) SENGAJA tidak di-retry karena butuh ~menit untuk pulih.
+function is503Overload(err: any): boolean {
+  const status = err?.status ?? err?.code ?? err?.response?.status;
+  const msg = (err?.message || "").toString().toLowerCase();
+  return (
+    status === 503 ||
+    msg.includes("503") ||
+    msg.includes("unavailable") ||
+    msg.includes("overloaded") ||
+    msg.includes("high demand")
+  );
+}
+
+// Helper generate content: fallback antar-model + retry KHUSUS 503 (overload) per model.
 async function generateWithFallback(params: {
   contents: any;
   config?: any;
 }) {
-  // HEMAT QUOTA: cuma 2 model, TANPA retry -> maksimal 2 panggilan API per generate.
-  // (2.5-flash sudah 404 utk user baru; kalau dua-duanya gagal, endpoint pakai template fallback.)
+  // HEMAT QUOTA: 2 model. Retry hanya saat 503 (server overload, bukan konsumsi kuota),
+  // error lain (404/429/quota) langsung pindah model. Kalau semua gagal -> endpoint pakai template fallback.
   const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest"];
   const PER_MODEL_TIMEOUT_MS = 20000;
+  const MAX_503_RETRIES = 2; // percobaan ulang tambahan khusus 503, per model
+  const RETRY_BACKOFF_MS = [1200, 2800];
   let lastError: any = null;
 
   for (const model of modelsToTry) {
-    try {
-      // Timeout per-model biar satu model yang nge-hang nggak bikin request mentok lama.
-      const response = (await Promise.race([
-        ai.models.generateContent({
-          model,
-          contents: params.contents,
-          config: params.config,
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`TIMEOUT after ${PER_MODEL_TIMEOUT_MS}ms`)), PER_MODEL_TIMEOUT_MS),
-        ),
-      ])) as Awaited<ReturnType<typeof ai.models.generateContent>>;
-      return response;
-    } catch (err: any) {
-      lastError = err;
-      console.warn(`Model ${model} call failed (${err?.status || err?.message}), coba model berikutnya...`);
+    for (let attempt = 0; attempt <= MAX_503_RETRIES; attempt++) {
+      try {
+        // Timeout per-model biar satu model yang nge-hang nggak bikin request mentok lama.
+        const response = (await Promise.race([
+          ai.models.generateContent({
+            model,
+            contents: params.contents,
+            config: params.config,
+          }),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`TIMEOUT after ${PER_MODEL_TIMEOUT_MS}ms`)), PER_MODEL_TIMEOUT_MS),
+          ),
+        ])) as Awaited<ReturnType<typeof ai.models.generateContent>>;
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        // Retry model yang sama hanya kalau 503 & masih ada jatah retry.
+        if (is503Overload(err) && attempt < MAX_503_RETRIES) {
+          const backoff = RETRY_BACKOFF_MS[attempt] ?? 2800;
+          console.warn(`Model ${model} overload (503), retry ${attempt + 1}/${MAX_503_RETRIES} dalam ${backoff}ms...`);
+          await new Promise((r) => setTimeout(r, backoff));
+          continue;
+        }
+        // Bukan 503, atau jatah retry habis -> pindah ke model berikutnya.
+        console.warn(`Model ${model} call failed (${err?.status || err?.message}), coba model berikutnya...`);
+        break;
+      }
     }
   }
 

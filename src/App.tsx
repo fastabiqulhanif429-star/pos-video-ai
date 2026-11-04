@@ -260,6 +260,17 @@ export default function App() {
   const [researchResults, setResearchResults] = useState<any[]>([]);
   const [researchingProducts, setResearchingProducts] = useState<boolean>(false);
   const [researchIsFallback, setResearchIsFallback] = useState<boolean>(false);
+  // Verifikasi merek + paste foto
+  const [verifyingProduct, setVerifyingProduct] = useState<any | null>(null);
+  const [brandResults, setBrandResults] = useState<any[]>([]);
+  const [loadingBrands, setLoadingBrands] = useState<boolean>(false);
+  const [brandsIsFallback, setBrandsIsFallback] = useState<boolean>(false);
+  const [selectedBrandIdx, setSelectedBrandIdx] = useState<number | null>(null);
+  const [photoUrlInput, setPhotoUrlInput] = useState<string>("");
+  const [loadingPhotoUrl, setLoadingPhotoUrl] = useState<boolean>(false);
+  // Paste foto di editor (bagian upload)
+  const [editorPhotoUrl, setEditorPhotoUrl] = useState<string>("");
+  const [loadingEditorPhoto, setLoadingEditorPhoto] = useState<boolean>(false);
 
   // History state & helpers
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
@@ -662,6 +673,35 @@ export default function App() {
     showNotification("Semua prompt visual berhasil disalin! 📋", "success");
   };
 
+  // Gabungkan 3 scene -> 1 prompt single-shot (1 prompt = 1 video utuh 10 detik, bukan per-scene)
+  const buildSingleVideoPrompt = (): string => {
+    const scenes = blueprint.scenes || [];
+    if (scenes.length === 0) return "";
+    const isMale = voiceGender === "male";
+    const creator = isMale
+      ? "a consistent 24-year-old stylish Indonesian male creator (keep the exact same face, hair and outfit for the entire video)"
+      : "a consistent 23-year-old stylish Indonesian female influencer (keep the exact same face, hair and outfit for the entire video)";
+    const beats = scenes
+      .map(
+        (s) =>
+          `• ${s.timestamp} — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`,
+      )
+      .join("\n");
+    return `Create ONE single continuous 10-second vertical 9:16 photorealistic affiliate video of ${creator} promoting ${productName || "the product"}.
+IMPORTANT: output must be ONE seamless video from start to finish — do NOT generate separate clips, do NOT generate an image per scene. It is a single continuous take that smoothly transitions through three beats:
+${beats}
+Keep the SAME character identity, lighting mood and visual style across the whole video (no face/style change between beats). Overall aesthetic: ${blueprint.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous 10-second video, 9:16 vertical, photorealistic 8k, smooth camera motion.`;
+  };
+
+  const copySingleVideoPrompt = () => {
+    if (!blueprint.scenes || blueprint.scenes.length === 0) {
+      showNotification("Belum ada skenario yang dibuat.", "info");
+      return;
+    }
+    navigator.clipboard.writeText(buildSingleVideoPrompt());
+    showNotification("Prompt 1 Video (single-shot) disalin! Tempel 1x di Flow/Veo → jadi 1 video utuh. 🎬", "success");
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auto notification helper
@@ -894,6 +934,119 @@ export default function App() {
     showNotification(`"${product.productName}" dimuat ke editor. Menyusun naskah otomatis...`, "success");
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
     await generateVoiceOverAI(product.productName, product.keyFeatures, product.targetAudience, angleCtx);
+  };
+
+  // Ambil gambar dari URL lewat server (hindari CORS) -> data URL base64
+  const fetchImageDataUrl = async (url: string): Promise<{ dataUrl: string; mimeType: string }> => {
+    const resp = await fetch("/api/fetch-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: url.trim() }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data?.error || "Gagal memuat gambar dari URL");
+    return { dataUrl: data.dataUrl, mimeType: data.mimeType || "image/jpeg" };
+  };
+
+  // Langkah verifikasi: minta AI kelompokkan merek untuk produk terpilih
+  const verifyBrands = async (product: any) => {
+    setVerifyingProduct(product);
+    setBrandResults([]);
+    setSelectedBrandIdx(null);
+    setPhotoUrlInput("");
+    setLoadingBrands(true);
+    try {
+      const response = await fetch("/api/verify-brands", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productName: product.productName,
+          category: product.category,
+          shopeeKeyword: product.shopeeKeyword,
+        }),
+      });
+      if (!response.ok) throw new Error("Gagal verifikasi merek");
+      const result = await response.json();
+      if (result.brands && result.brands.length > 0) {
+        setBrandResults(result.brands);
+        setBrandsIsFallback(!!result.isFallback);
+      } else {
+        throw new Error("Hasil merek kosong");
+      }
+    } catch (error) {
+      console.error(error);
+      showNotification("Gagal memuat daftar merek. Coba lagi sebentar.", "error");
+      setVerifyingProduct(null);
+    } finally {
+      setLoadingBrands(false);
+    }
+  };
+
+  // Pakai merek terpilih -> isi editor (opsional dengan foto produk)
+  const useBrandForVideo = async (brand: any, photoDataUrl?: string) => {
+    if (!verifyingProduct) return;
+    const name = brand.productLabel || `${brand.brandName} ${verifyingProduct.productName}`;
+    const features = `${verifyingProduct.keyFeatures || ""}${brand.note ? ` ${brand.note}` : ""}`.trim();
+    const audience = verifyingProduct.targetAudience || "";
+    const angle = verifyingProduct.contentAngle || "";
+    setProductName(name);
+    setKeyFeatures(features);
+    setTargetAudience(audience);
+    setColorsDetected(["Sesuai Produk"]);
+    setCurrentTemplateId("custom");
+    setUserPromptContext(angle ? `Angle konten: ${angle}` : "");
+    if (photoDataUrl) setImageUrl(photoDataUrl);
+    // reset state verifikasi + tutup modal
+    setIsResearchModalOpen(false);
+    setVerifyingProduct(null);
+    setBrandResults([]);
+    setSelectedBrandIdx(null);
+    setPhotoUrlInput("");
+    showNotification(`"${name}" dimuat ke editor. Menyusun naskah otomatis...`, "success");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    await generateVoiceOverAI(name, features, audience, angle ? `Angle: ${angle}` : "");
+  };
+
+  // Paste link foto Shopee di langkah verifikasi -> ambil gambar -> pakai merek
+  const handlePastePhotoForBrand = async () => {
+    if (selectedBrandIdx === null) return;
+    const brand = brandResults[selectedBrandIdx];
+    if (!photoUrlInput.trim()) {
+      showNotification("Tempel dulu link foto produknya ya.", "info");
+      return;
+    }
+    setLoadingPhotoUrl(true);
+    showNotification("Mengambil foto produk dari link...", "info");
+    try {
+      const { dataUrl } = await fetchImageDataUrl(photoUrlInput);
+      await useBrandForVideo(brand, dataUrl);
+    } catch (error: any) {
+      console.error(error);
+      showNotification(error?.message || "Gagal memuat foto. Pastikan link gambar langsung (Salin alamat gambar).", "error");
+    } finally {
+      setLoadingPhotoUrl(false);
+    }
+  };
+
+  // Paste link foto di bagian upload editor -> ambil gambar -> analisis AI
+  const handleEditorPhotoUrl = async () => {
+    if (!editorPhotoUrl.trim()) {
+      showNotification("Tempel dulu link foto produknya ya.", "info");
+      return;
+    }
+    setLoadingEditorPhoto(true);
+    showNotification("Mengambil foto produk dari link...", "info");
+    try {
+      const { dataUrl, mimeType } = await fetchImageDataUrl(editorPhotoUrl);
+      setImageUrl(dataUrl);
+      setEditorPhotoUrl("");
+      await analyzeImageViaAI(dataUrl, mimeType);
+    } catch (error: any) {
+      console.error(error);
+      showNotification(error?.message || "Gagal memuat foto. Pastikan link gambar langsung (Salin alamat gambar).", "error");
+    } finally {
+      setLoadingEditorPhoto(false);
+    }
   };
 
   // AI Service 3: Generate Video Blueprint JSON
@@ -1524,6 +1677,29 @@ export default function App() {
                 className="hidden"
               />
 
+              {/* TEMPEL LINK FOTO (dari Shopee dll) */}
+              <div className="mt-2.5 flex items-center gap-2">
+                <div className="flex-1 flex items-center gap-2 bg-slate-950/40 border border-slate-800 focus-within:border-cyan-500/50 rounded-lg px-2.5 py-1.5 transition-all">
+                  <ShoppingBag className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <input
+                    type="text"
+                    value={editorPhotoUrl}
+                    onChange={(e) => setEditorPhotoUrl(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !loadingEditorPhoto) handleEditorPhotoUrl(); }}
+                    placeholder="...atau tempel link foto produk (klik kanan foto → Salin alamat gambar)"
+                    className="flex-1 min-w-0 bg-transparent text-[11px] text-slate-200 placeholder:text-slate-600 outline-none"
+                  />
+                </div>
+                <button
+                  onClick={handleEditorPhotoUrl}
+                  disabled={loadingEditorPhoto}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600/80 hover:bg-cyan-500 text-white text-[11px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0"
+                >
+                  {loadingEditorPhoto ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                  Muat
+                </button>
+              </div>
+
               {/* INPUT NAMA & TIPE PRODUK */}
               <div className="space-y-1.5">
                 <label className="text-[11px] uppercase tracking-wider text-slate-400 font-mono font-bold block">
@@ -1955,9 +2131,17 @@ export default function App() {
                 {blueprint.scenes.length > 0 && (
                   <>
                     <button
+                      onClick={copySingleVideoPrompt}
+                      className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-emerald-600 to-cyan-600 hover:opacity-90 text-[10px] font-mono text-white font-bold flex items-center gap-1 transition-all shadow-sm shadow-emerald-500/20"
+                      title="Salin 1 prompt gabungan -> 1 video utuh (bukan 3 video terpisah per scene)"
+                    >
+                      <Video className="w-3 h-3" />
+                      Prompt 1 Video
+                    </button>
+                    <button
                       onClick={copyAllPrompts}
                       className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 text-[10px] font-mono text-violet-300 font-bold flex items-center gap-1 transition-all"
-                      title="Salin semua visual prompt 3 scene"
+                      title="Salin visual prompt terpisah per scene (3 klip)"
                     >
                       <Copy className="w-3 h-3" />
                       Salin 3 Prompt
@@ -2267,6 +2451,14 @@ export default function App() {
                     Unduh JSON
                   </button>
                   <button
+                    onClick={() => { copySingleVideoPrompt(); setIsFlowVeoModalOpen(true); }}
+                    className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:opacity-90 text-white px-4 py-2 rounded-xl font-mono font-bold transition-all shadow-md shadow-emerald-500/20 active:scale-95"
+                    title="1 prompt gabungan -> 1 video utuh 10 detik (bukan 3 video per scene)"
+                  >
+                    <Video className="w-3.5 h-3.5" />
+                    SALIN PROMPT 1 VIDEO
+                  </button>
+                  <button
                     onClick={() => {
                       navigator.clipboard.writeText(getCompiledJsonString());
                       setCopiedJson(true);
@@ -2275,6 +2467,7 @@ export default function App() {
                       setIsFlowVeoModalOpen(true);
                     }}
                     className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1.5 bg-gradient-to-r from-pink-600 to-violet-600 hover:from-pink-500 hover:to-violet-500 text-white px-4 py-2 rounded-xl font-mono font-bold transition-all shadow-md active:scale-95"
+                    title="Script JSON per scene (tiap scene bisa jadi klip terpisah)"
                   >
                     {copiedJson ? (
                       <>
@@ -2284,7 +2477,7 @@ export default function App() {
                     ) : (
                       <>
                         <Copy className="w-3.5 h-3.5" />
-                        SALIN SCRIPT LENGKAP
+                        SALIN JSON (PER SCENE)
                       </>
                     )}
                   </button>
@@ -2300,7 +2493,7 @@ export default function App() {
                 </div>
               </div>
               <p className="text-[10px] text-slate-500 leading-normal mt-2.5">
-                *Salin seluruh kode JSON di atas dan tempelkan langsung ke kolom input Google Flow / Veo Video Generator bersama dengan foto produk Anda untuk men-generate video promosi berkualitas tinggi.
+                💡 <b className="text-emerald-400">Mau 1 video utuh?</b> Pakai <b className="text-slate-300">"SALIN PROMPT 1 VIDEO"</b> — 1 prompt gabungan jadi 1 video 10 detik. Kalau pakai JSON per scene, tiap scene bisa ke-generate jadi klip terpisah (3 video). Tempel di Google Flow / Veo bareng foto produk Anda.
               </p>
             </div>
           )}
@@ -3549,6 +3742,107 @@ export default function App() {
 
               {/* Body */}
               <div className="p-6 overflow-y-auto flex-1 scrollbar-thin space-y-5">
+                {verifyingProduct ? (
+                  /* ===== VIEW VERIFIKASI MEREK ===== */
+                  <div className="space-y-4">
+                    <button
+                      onClick={() => { setVerifyingProduct(null); setBrandResults([]); setSelectedBrandIdx(null); setPhotoUrlInput(""); }}
+                      className="flex items-center gap-1.5 text-[11px] font-mono font-semibold text-slate-400 hover:text-cyan-300 transition-all"
+                    >
+                      <ArrowRight className="w-3.5 h-3.5 rotate-180" /> Kembali ke hasil riset
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <ShoppingBag className="w-4 h-4 text-orange-400" />
+                      <h4 className="text-sm font-bold text-white">Verifikasi Merek: {verifyingProduct.productName}</h4>
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed flex items-start gap-1.5">
+                      <Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />
+                      Merek dari pengetahuan AI — <b className="text-slate-400">cek harga &amp; stok asli di Shopee</b>. Pilih merek, lalu tempel link foto produknya biar langsung masuk ke editor.
+                    </p>
+
+                    {loadingBrands && (
+                      <div className="flex flex-col items-center justify-center py-10 text-center">
+                        <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mb-2" />
+                        <p className="text-xs text-slate-400">Mengelompokkan merek populer...</p>
+                      </div>
+                    )}
+
+                    {!loadingBrands && brandResults.length > 0 && (
+                      <div className="space-y-3">
+                        {brandsIsFallback && (
+                          <div className="text-[11px] text-amber-300 bg-amber-950/30 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-2">
+                            <Zap className="w-3.5 h-3.5 shrink-0" /> Daftar merek profil cepat (model AI sedang sibuk).
+                          </div>
+                        )}
+                        {brandResults.map((b, bi) => (
+                          <div key={bi} className={`border rounded-xl p-3.5 transition-all ${selectedBrandIdx === bi ? "border-cyan-500/60 bg-cyan-950/10" : "border-slate-850 bg-[#10111a]/50"}`}>
+                            <div className="flex items-start justify-between gap-2 mb-1.5">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h5 className="text-sm font-bold text-white">{b.brandName}</h5>
+                                  <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-950/60 border border-amber-500/20 text-amber-300">⭐ {b.rating}</span>
+                                </div>
+                                <p className="text-[11px] text-slate-400 mt-0.5">{b.productLabel}</p>
+                              </div>
+                              <span className="text-[11px] font-bold text-emerald-300 shrink-0">{b.estPrice}</span>
+                            </div>
+                            <p className="text-[11px] text-slate-300 mb-1"><span className="text-slate-500">💡 </span>{b.note}</p>
+                            <p className="text-[11px] text-slate-400 mb-2.5"><span className="text-slate-500">✅ Rekomendasi: </span>{b.recommendation}</p>
+                            <div className="flex flex-wrap gap-2">
+                              <a
+                                href={`https://shopee.co.id/search?keyword=${encodeURIComponent(b.shopeeKeyword || b.brandName)}`}
+                                target="_blank" rel="noreferrer"
+                                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-950/40 border border-orange-500/40 text-orange-300 hover:bg-orange-900/40 text-[11px] font-bold font-mono transition-all active:scale-95"
+                              >
+                                <ShoppingBag className="w-3 h-3" /> Cari di Shopee <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                              <button
+                                onClick={() => { setSelectedBrandIdx(selectedBrandIdx === bi ? null : bi); setPhotoUrlInput(""); }}
+                                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold font-mono transition-all active:scale-95 ${selectedBrandIdx === bi ? "bg-cyan-500 text-slate-950" : "bg-slate-800/60 border border-slate-700 text-slate-200 hover:bg-slate-700/60"}`}
+                              >
+                                <Check className="w-3 h-3" /> {selectedBrandIdx === bi ? "Terpilih" : "Pilih Merek Ini"}
+                              </button>
+                            </div>
+
+                            {selectedBrandIdx === bi && (
+                              <div className="mt-3 pt-3 border-t border-slate-800/60 space-y-2">
+                                <label className="text-[10px] font-bold uppercase tracking-wider font-mono text-slate-400 block">
+                                  Tempel link foto produk dari Shopee
+                                </label>
+                                <p className="text-[10px] text-slate-500 leading-relaxed">Di Shopee: klik kanan foto produk → <b className="text-slate-400">"Salin alamat gambar"</b>, lalu tempel di sini. Foto bakal otomatis masuk ke bagian upload &amp; dianalisis AI.</p>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={photoUrlInput}
+                                    onChange={(e) => setPhotoUrlInput(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter" && !loadingPhotoUrl) handlePastePhotoForBrand(); }}
+                                    placeholder="https://down-id.img.susercontent.com/....jpg"
+                                    className="flex-1 min-w-0 bg-[#0b0c15] border border-slate-800 focus:border-cyan-500/60 rounded-lg px-3 py-2 text-[11px] text-slate-100 placeholder:text-slate-600 outline-none"
+                                  />
+                                  <button
+                                    onClick={handlePastePhotoForBrand}
+                                    disabled={loadingPhotoUrl}
+                                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-violet-600 via-pink-500 to-amber-500 text-white text-[11px] font-extrabold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0"
+                                  >
+                                    {loadingPhotoUrl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Video className="w-3.5 h-3.5" />}
+                                    Pakai Foto
+                                  </button>
+                                </div>
+                                <button
+                                  onClick={() => useBrandForVideo(b)}
+                                  className="text-[10px] font-mono text-slate-400 hover:text-cyan-300 underline underline-offset-2"
+                                >
+                                  Lewati foto, bikin video tanpa foto dulu →
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                <>
                 {/* Form input */}
                 <div className="space-y-3">
                   <div>
@@ -3677,20 +3971,20 @@ export default function App() {
                             BIKIN VIDEO
                             <ArrowRight className="w-3.5 h-3.5" />
                           </button>
-                          <a
-                            href={`https://shopee.co.id/search?keyword=${encodeURIComponent(p.shopeeKeyword || p.productName)}`}
-                            target="_blank"
-                            rel="noreferrer"
+                          <button
+                            onClick={() => verifyBrands(p)}
                             className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-orange-950/40 border border-orange-500/40 text-orange-300 hover:bg-orange-900/40 text-xs font-bold font-mono transition-all active:scale-95"
                           >
                             <ShoppingBag className="w-3.5 h-3.5" />
-                            Cari di Shopee
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
+                            Cek Merek di Shopee
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
                         </div>
                       </div>
                     ))}
                   </div>
+                )}
+                </>
                 )}
               </div>
             </motion.div>

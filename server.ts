@@ -491,6 +491,142 @@ app.post("/api/research-products", async (req, res) => {
   }
 });
 
+// Endpoint 5: Verifikasi Merek Produk (AI brand guide untuk langkah verifikasi Shopee)
+app.post("/api/verify-brands", async (req, res) => {
+  try {
+    const { productName, category, shopeeKeyword } = req.body;
+
+    const prompt = `
+      Kamu ahli produk affiliate Indonesia. Untuk produk "${productName || "produk ini"}" (kategori: ${category || "umum"}),
+      sebutkan 5 MEREK / VARIAN yang populer & banyak dicari di Shopee/TikTok Shop Indonesia.
+
+      Untuk tiap merek berikan:
+      - brandName: nama merek/brand
+      - productLabel: nama produk lengkap yang biasa dipakai di marketplace
+      - estPrice: kisaran harga realistis (Rupiah)
+      - rating: estimasi rating umum (contoh "4.8")
+      - note: 1 kalimat kelebihan/karakter produknya
+      - recommendation: untuk siapa/kapan produk ini paling cocok (1 kalimat)
+      - shopeeKeyword: kata kunci spesifik untuk cari merek ini di Shopee
+
+      PENTING: ini berdasarkan pengetahuan umum & tren, BUKAN data stok/harga real-time. Harga & ketersediaan wajib dicek langsung di Shopee.
+      Balas JSON dengan properti 'brands' (array).
+    `;
+
+    const response = await generateWithFallback({
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            brands: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  brandName: { type: Type.STRING },
+                  productLabel: { type: Type.STRING },
+                  estPrice: { type: Type.STRING },
+                  rating: { type: Type.STRING },
+                  note: { type: Type.STRING },
+                  recommendation: { type: Type.STRING },
+                  shopeeKeyword: { type: Type.STRING },
+                },
+                required: ["brandName", "productLabel", "estPrice", "rating", "note", "recommendation", "shopeeKeyword"],
+              },
+            },
+          },
+          required: ["brands"],
+        },
+      },
+    });
+
+    const parsedData = JSON.parse(response.text || "{}");
+    return res.json(parsedData);
+  } catch (error: any) {
+    console.warn("Error verifying brands, using fallback:", error?.message || error);
+    const productName = req.body.productName || "Produk";
+    const kw = req.body.shopeeKeyword || productName;
+    return res.json({
+      brands: [
+        {
+          brandName: "Varian Terlaris",
+          productLabel: `${productName} (Best Seller)`,
+          estPrice: "Rp25.000 - Rp80.000",
+          rating: "4.8",
+          note: "Varian paling banyak terjual dengan ulasan positif.",
+          recommendation: "Cocok untuk pemula yang cari produk aman & teruji.",
+          shopeeKeyword: `${kw} terlaris`,
+        },
+        {
+          brandName: "Varian Official Store",
+          productLabel: `${productName} (Official)`,
+          estPrice: "Rp40.000 - Rp120.000",
+          rating: "4.9",
+          note: "Dijual langsung oleh toko resmi, keaslian terjamin.",
+          recommendation: "Pilih ini kalau prioritas keaslian & garansi.",
+          shopeeKeyword: `${kw} official store`,
+        },
+        {
+          brandName: "Varian Hemat",
+          productLabel: `${productName} (Promo)`,
+          estPrice: "Rp15.000 - Rp45.000",
+          rating: "4.7",
+          note: "Harga paling ramah, sering ada promo & gratis ongkir.",
+          recommendation: "Untuk yang cari harga termurah dengan kualitas layak.",
+          shopeeKeyword: `${kw} murah`,
+        },
+      ],
+      isFallback: true,
+      errorDetail: error?.message || "Quota limit exceeded",
+    });
+  }
+});
+
+// Endpoint 6: Ambil gambar dari URL (paste link foto produk) -> base64 (hindari CORS browser)
+app.post("/api/fetch-image", async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || typeof url !== "string" || !/^https?:\/\//i.test(url)) {
+      return res.status(400).json({ error: "URL gambar tidak valid (harus diawali http/https)." });
+    }
+
+    const imgResp = await fetch(url, {
+      headers: {
+        // Sebagian CDN (termasuk Shopee) butuh UA & referer wajar biar ngasih gambar.
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*",
+      },
+    });
+
+    if (!imgResp.ok) {
+      return res.status(502).json({ error: `Gagal ambil gambar (HTTP ${imgResp.status}). Pastikan link mengarah langsung ke file gambar.` });
+    }
+
+    const contentType = imgResp.headers.get("content-type") || "";
+    if (!contentType.startsWith("image/")) {
+      return res.status(415).json({ error: "Link bukan gambar langsung. Klik kanan foto produk di Shopee → 'Salin alamat gambar'." });
+    }
+
+    const arrayBuf = await imgResp.arrayBuffer();
+    const sizeMB = arrayBuf.byteLength / (1024 * 1024);
+    if (sizeMB > 12) {
+      return res.status(413).json({ error: "Ukuran gambar terlalu besar (maks 12MB)." });
+    }
+
+    const base64 = Buffer.from(arrayBuf).toString("base64");
+    return res.json({
+      base64,
+      mimeType: contentType,
+      dataUrl: `data:${contentType};base64,${base64}`,
+    });
+  } catch (error: any) {
+    console.warn("Error fetching image:", error?.message || error);
+    return res.status(500).json({ error: "Gagal memuat gambar dari URL. Coba upload manual atau pakai link lain." });
+  }
+});
+
 // Serve Vite in development, static files in production
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

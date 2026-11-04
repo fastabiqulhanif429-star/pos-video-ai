@@ -12,8 +12,7 @@ COPY . .
 RUN npm run build
 
 ENV NODE_ENV=production
-# Hugging Face Spaces jalanin di port 7860; server.ts baca process.env.PORT.
-ENV PORT=7860
-EXPOSE 7860
+# Platform (Render dll) nyuntik PORT saat runtime; server.ts baca process.env.PORT.
+EXPOSE 3000
 
 CMD ["node", "dist/server.cjs"]

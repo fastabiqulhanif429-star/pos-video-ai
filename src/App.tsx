@@ -44,7 +44,11 @@ import {
   Lightbulb,
   BookOpen,
   Flame,
-  ArrowRight
+  ArrowRight,
+  Target,
+  ShoppingBag,
+  TrendingUp,
+  Loader2
 } from "lucide-react";
 import { PRODUCT_TEMPLATES, ProductTemplate } from "./templates";
 import { VideoBlueprint, Scene } from "./types";
@@ -248,6 +252,14 @@ export default function App() {
 
   // Flow / Veo Redirect Modal state
   const [isFlowVeoModalOpen, setIsFlowVeoModalOpen] = useState<boolean>(false);
+
+  // Riset Produk Affiliate AI state
+  const [isResearchModalOpen, setIsResearchModalOpen] = useState<boolean>(false);
+  const [researchNiche, setResearchNiche] = useState<string>("");
+  const [researchPriceRange, setResearchPriceRange] = useState<string>("Rp30.000 - Rp200.000");
+  const [researchResults, setResearchResults] = useState<any[]>([]);
+  const [researchingProducts, setResearchingProducts] = useState<boolean>(false);
+  const [researchIsFallback, setResearchIsFallback] = useState<boolean>(false);
 
   // History state & helpers
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
@@ -833,6 +845,57 @@ export default function App() {
     }
   };
 
+  // AI Service 4: Riset Produk Affiliate (ideation AI)
+  const researchAffiliateProducts = async () => {
+    setResearchingProducts(true);
+    setResearchResults([]);
+    showNotification("AI sedang meriset produk affiliate potensial...", "info");
+    try {
+      const response = await fetch("/api/research-products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          niche: researchNiche,
+          priceRange: researchPriceRange,
+          platform: "TikTok Shop & Shopee",
+        }),
+      });
+      if (!response.ok) throw new Error("Gagal meriset produk");
+      const result = await response.json();
+      if (result.products && result.products.length > 0) {
+        setResearchResults(result.products);
+        setResearchIsFallback(!!result.isFallback);
+        if (result.isFallback) {
+          showNotification("Rekomendasi produk siap (profil cepat)! 🎯", "success");
+        } else {
+          showNotification(`${result.products.length} ide produk affiliate ditemukan! 🎯`, "success");
+        }
+      } else {
+        throw new Error("Hasil riset kosong");
+      }
+    } catch (error) {
+      console.error(error);
+      showNotification("Gagal meriset produk. Model AI mungkin lagi sibuk, coba lagi sebentar.", "error");
+    } finally {
+      setResearchingProducts(false);
+    }
+  };
+
+  // Pakai produk hasil riset -> isi editor + auto lanjut bikin video
+  const useProductFromResearch = async (product: any) => {
+    setProductName(product.productName || "");
+    setKeyFeatures(product.keyFeatures || "");
+    setTargetAudience(product.targetAudience || "");
+    setColorsDetected(["Sesuai Produk"]);
+    setCurrentTemplateId("custom");
+    const angleCtx = product.contentAngle ? `Angle konten: ${product.contentAngle}` : "";
+    setUserPromptContext(angleCtx);
+    setIsResearchModalOpen(false);
+    showNotification(`"${product.productName}" dimuat ke editor. Menyusun naskah otomatis...`, "success");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    await generateVoiceOverAI(product.productName, product.keyFeatures, product.targetAudience, angleCtx);
+  };
+
   // AI Service 3: Generate Video Blueprint JSON
   const generateVisualBlueprintAI = async () => {
     setGeneratingBlueprint(true);
@@ -1171,7 +1234,18 @@ export default function App() {
                 </button>
               )}
 
-              <button 
+              <button
+                onClick={() => setIsResearchModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 font-semibold transition-all bg-gradient-to-r from-cyan-950/50 to-emerald-950/40 border-cyan-500/40 text-cyan-300 hover:from-cyan-900/50 hover:to-emerald-900/40 shadow-sm shadow-cyan-500/10 active:scale-95"
+                title="Riset Produk Affiliate dengan AI"
+                id="btn-riset-produk"
+              >
+                <Target className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="font-mono">Riset Produk</span>
+                <span className="text-[9px] bg-cyan-500 text-slate-950 px-1 rounded font-mono font-bold">AI</span>
+              </button>
+
+              <button
                 onClick={() => {
                   setCurrentGuideStep(0);
                   setIsGuideModalOpen(true);
@@ -3440,6 +3514,190 @@ export default function App() {
       </AnimatePresence>
 
       {/* History Modal */}
+      {/* MODAL: RISET PRODUK AFFILIATE AI */}
+      <AnimatePresence>
+        {isResearchModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="research-modal">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl relative flex flex-col max-h-[88vh]"
+            >
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-gradient-to-br from-cyan-500 to-emerald-600 rounded-lg text-white shadow-lg shadow-cyan-500/10">
+                    <Target className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-100">
+                      Riset Produk Affiliate AI
+                    </h3>
+                    <p className="text-[10px] text-slate-400">
+                      Cari ide produk yang berpotensi laris, lalu langsung bikin videonya
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsResearchModalOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 overflow-y-auto flex-1 scrollbar-thin space-y-5">
+                {/* Form input */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider font-mono text-slate-400 mb-1.5 block">
+                      Niche / Kategori
+                    </label>
+                    <input
+                      type="text"
+                      value={researchNiche}
+                      onChange={(e) => setResearchNiche(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !researchingProducts) researchAffiliateProducts(); }}
+                      placeholder="Contoh: skincare, gadget dapur, fashion hijab, mainan anak... (kosongkan = tren umum)"
+                      className="w-full bg-[#10111a] border border-slate-800 focus:border-cyan-500/60 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {["Rp10.000 - Rp50.000", "Rp30.000 - Rp200.000", "Rp200.000 ke atas"].map((range) => (
+                      <button
+                        key={range}
+                        onClick={() => setResearchPriceRange(range)}
+                        className={`text-[11px] font-mono font-semibold px-3 py-1.5 rounded-lg border transition-all ${researchPriceRange === range ? "bg-cyan-950/60 border-cyan-500/50 text-cyan-300" : "bg-slate-900/40 border-slate-800 text-slate-400 hover:border-slate-700"}`}
+                      >
+                        {range}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={researchAffiliateProducts}
+                    disabled={researchingProducts}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:opacity-90 text-slate-950 text-sm font-extrabold font-mono transition-all active:scale-98 disabled:opacity-60 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20"
+                  >
+                    {researchingProducts ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        AI SEDANG MERISET...
+                      </>
+                    ) : (
+                      <>
+                        <Target className="w-4 h-4" />
+                        RISET PRODUK SEKARANG
+                      </>
+                    )}
+                  </button>
+                  <p className="text-[10px] text-slate-500 leading-relaxed flex items-start gap-1.5">
+                    <Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />
+                    Rekomendasi ini ide berbasis tren &amp; pengetahuan AI, <b className="text-slate-400">bukan data penjualan real-time</b>. Ambil link affiliate asli lewat tombol "Cari di Shopee".
+                  </p>
+                </div>
+
+                {/* Hasil riset */}
+                {researchingProducts && (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Loader2 className="w-10 h-10 text-cyan-400 animate-spin mb-3" />
+                    <p className="text-sm font-bold text-slate-300">Menganalisis tren &amp; menyusun rekomendasi...</p>
+                    <p className="text-[11px] text-slate-500 mt-1">Biasanya 5-15 detik.</p>
+                  </div>
+                )}
+
+                {!researchingProducts && researchResults.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-slate-800/80 rounded-2xl bg-slate-950/25">
+                    <TrendingUp className="w-12 h-12 text-slate-600 mb-3" />
+                    <p className="text-sm font-bold text-slate-300">Belum Ada Hasil Riset</p>
+                    <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
+                      Isi niche di atas (atau kosongkan untuk tren umum), lalu klik "Riset Produk Sekarang".
+                    </p>
+                  </div>
+                )}
+
+                {!researchingProducts && researchResults.length > 0 && (
+                  <div className="space-y-3">
+                    {researchIsFallback && (
+                      <div className="text-[11px] text-amber-300 bg-amber-950/30 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-2">
+                        <Zap className="w-3.5 h-3.5 shrink-0" />
+                        Hasil dari profil cepat (model AI sedang sibuk). Coba riset ulang untuk hasil yang lebih spesifik.
+                      </div>
+                    )}
+                    {researchResults.map((p, idx) => (
+                      <div
+                        key={idx}
+                        className="border border-slate-850 hover:border-cyan-500/40 bg-[#10111a]/50 rounded-xl p-4 transition-all"
+                      >
+                        {/* Judul + skor */}
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <h4 className="text-sm font-bold text-white">{p.productName}</h4>
+                              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/20 text-cyan-300">
+                                {p.category}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 leading-relaxed">{p.whyTrending}</p>
+                          </div>
+                          <div className="flex flex-col items-center shrink-0 bg-slate-950/60 border border-slate-800 rounded-lg px-2.5 py-1.5">
+                            <div className="flex items-center gap-1">
+                              <Flame className="w-3.5 h-3.5 text-orange-400" />
+                              <span className="text-sm font-extrabold text-orange-300">{p.viralScore}</span>
+                            </div>
+                            <span className="text-[8px] font-mono text-slate-500 uppercase">viral</span>
+                          </div>
+                        </div>
+
+                        {/* Detail grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] mb-3 mt-3">
+                          <div className="flex gap-1.5"><span className="text-slate-500 shrink-0">💰 Harga:</span><span className="text-slate-300">{p.estPriceRange}</span></div>
+                          <div className="flex gap-1.5"><span className="text-slate-500 shrink-0">🎯 Persaingan:</span><span className="text-slate-300">{p.competition}</span></div>
+                          <div className="flex gap-1.5 sm:col-span-2"><span className="text-slate-500 shrink-0">👥 Target:</span><span className="text-slate-300">{p.targetAudience}</span></div>
+                          <div className="flex gap-1.5 sm:col-span-2"><span className="text-slate-500 shrink-0">🎬 Angle:</span><span className="text-slate-300">{p.contentAngle}</span></div>
+                        </div>
+
+                        {/* Hashtags */}
+                        {Array.isArray(p.hashtags) && p.hashtags.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mb-3">
+                            {p.hashtags.map((h: string, i: number) => (
+                              <span key={i} className="text-[10px] font-mono text-cyan-400/80 bg-cyan-950/30 px-1.5 py-0.5 rounded">{h}</span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Actions */}
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            onClick={() => useProductFromResearch(p)}
+                            className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-violet-600 via-pink-500 to-amber-500 hover:opacity-90 text-white text-xs font-extrabold font-mono transition-all active:scale-95 shadow-md shadow-violet-500/10"
+                          >
+                            <Video className="w-3.5 h-3.5" />
+                            BIKIN VIDEO
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                          <a
+                            href={`https://shopee.co.id/search?keyword=${encodeURIComponent(p.shopeeKeyword || p.productName)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-orange-950/40 border border-orange-500/40 text-orange-300 hover:bg-orange-900/40 text-xs font-bold font-mono transition-all active:scale-95"
+                          >
+                            <ShoppingBag className="w-3.5 h-3.5" />
+                            Cari di Shopee
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {isHistoryModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="history-modal">

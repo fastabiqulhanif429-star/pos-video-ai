@@ -342,6 +342,128 @@ app.post("/api/generate-blueprint", async (req, res) => {
   }
 });
 
+// Endpoint 4: Riset Produk Affiliate AI (ideation berbasis pengetahuan model)
+app.post("/api/research-products", async (req, res) => {
+  try {
+    const { niche, priceRange, platform } = req.body;
+
+    const prompt = `
+      Kamu adalah ahli riset produk affiliate TikTok Shop & Shopee Indonesia.
+      Berikan rekomendasi 6 IDE PRODUK affiliate yang punya potensi laris & cocok untuk konten video pendek (9:16, 10 detik).
+
+      Kriteria dari pengguna:
+      - Niche / kategori: ${niche || "bebas (produk viral apa saja yang lagi tren)"}
+      - Rentang harga incaran: ${priceRange || "Rp30.000 - Rp200.000 (impulse buy)"}
+      - Platform utama: ${platform || "TikTok Shop & Shopee"}
+
+      Aturan:
+      - Fokus ke produk yang GAMPANG didemokan secara visual di video pendek (efek before-after, tekstur, hasil nyata, reaksi wow).
+      - Harga ramah untuk impulse buying.
+      - Berikan sudut konten (angle/hook) yang spesifik & kekinian untuk tiap produk.
+      - "shopeeKeyword" = kata kunci paling efektif untuk mencari produk itu di Shopee (pengguna akan ambil link affiliate sendiri).
+      - PENTING: ini rekomendasi berbasis pengetahuan & tren umum, BUKAN data penjualan real-time.
+
+      Balas dalam JSON dengan properti 'products' (array of object).
+    `;
+
+    const response = await generateWithFallback({
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            products: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  productName: { type: Type.STRING },
+                  category: { type: Type.STRING },
+                  estPriceRange: { type: Type.STRING },
+                  viralScore: { type: Type.NUMBER },
+                  whyTrending: { type: Type.STRING },
+                  targetAudience: { type: Type.STRING },
+                  keyFeatures: { type: Type.STRING },
+                  contentAngle: { type: Type.STRING },
+                  competition: { type: Type.STRING },
+                  shopeeKeyword: { type: Type.STRING },
+                  hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+                required: [
+                  "productName",
+                  "category",
+                  "estPriceRange",
+                  "viralScore",
+                  "whyTrending",
+                  "targetAudience",
+                  "keyFeatures",
+                  "contentAngle",
+                  "competition",
+                  "shopeeKeyword",
+                  "hashtags",
+                ],
+              },
+            },
+          },
+          required: ["products"],
+        },
+      },
+    });
+
+    const parsedData = JSON.parse(response.text || "{}");
+    return res.json(parsedData);
+  } catch (error: any) {
+    console.warn("Error researching products, using fallback:", error?.message || error);
+    const niche = req.body.niche || "produk viral";
+    return res.json({
+      products: [
+        {
+          productName: "Hair Tonic Penumbuh Rambut",
+          category: "Hair Care",
+          estPriceRange: "Rp25.000 - Rp60.000",
+          viralScore: 9,
+          whyTrending: "Konten before-after rambut rontok selalu menarik perhatian sepanjang tahun.",
+          targetAudience: "Pria & wanita 18-35 yang bermasalah dengan rambut rontok/tipis.",
+          keyFeatures: "Serum penumbuh rambut, bersertifikat BPOM, hasil terlihat dalam beberapa minggu.",
+          contentAngle: "Timelapse before-after + testimoni jujur 'awalnya ragu...'.",
+          competition: "Tinggi",
+          shopeeKeyword: "hair tonic penumbuh rambut bpom",
+          hashtags: ["#hairtonic", "#rambutrontok", "#racuntiktok", "#haircare"],
+        },
+        {
+          productName: "Pembersih Noda Pakaian (Stain Remover)",
+          category: "Household",
+          estPriceRange: "Rp20.000 - Rp45.000",
+          viralScore: 8,
+          whyTrending: "Demo menghilangkan noda membandel memicu pembelian impulsif (efek wow).",
+          targetAudience: "Ibu rumah tangga & anak kos yang sering kena noda baju.",
+          keyFeatures: "Menghilangkan noda membandel, praktis, hasil instan terlihat di video.",
+          contentAngle: "Uji noda ekstrem (kopi, saus, tinta) hilang seketika di depan kamera.",
+          competition: "Sedang",
+          shopeeKeyword: "penghilang noda baju ampuh",
+          hashtags: ["#stainremover", "#tipsrumah", "#racunshopee", "#cleaningtiktok"],
+        },
+        {
+          productName: "Tone Up Cream Pencerah Wajah",
+          category: "Skincare",
+          estPriceRange: "Rp30.000 - Rp80.000",
+          viralScore: 9,
+          whyTrending: "Efek glow instan mudah ditonjolkan di kamera, kategori skincare paling besar.",
+          targetAudience: "Cewek 18-30 yang mau wajah cerah glowing untuk daily look.",
+          keyFeatures: "Pencerah wajah instan, glowing natural tanpa efek abu-abu, ringan.",
+          contentAngle: "Split-screen satu sisi wajah dipakai, satu sisi belum.",
+          competition: "Tinggi",
+          shopeeKeyword: "tone up cream pencerah wajah glowing",
+          hashtags: ["#toneupcream", "#glowing", "#skincareviral", "#racuntiktok"],
+        },
+      ],
+      isFallback: true,
+      errorDetail: error?.message || "Quota limit exceeded",
+    });
+  }
+});
+
 // Serve Vite in development, static files in production
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

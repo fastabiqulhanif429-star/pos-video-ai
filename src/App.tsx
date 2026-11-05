@@ -1187,6 +1187,41 @@ Keep the SAME character identity, lighting mood and visual style across the whol
     return { total, done, pct: total ? Math.round((done / total) * 100) : 0 };
   };
 
+  // Rangkum seluruh strategi (minggu 1-4) jadi teks rapih buat disalin
+  const buildStrategyText = (): string => {
+    const goal = Number(strategyData.goalRp || strategyTargetRp || 0).toLocaleString("id-ID");
+    const lines: string[] = [];
+    lines.push("🚀 STRATEGI AI AFFILIATE");
+    lines.push(`🎯 Target komisi: Rp ${goal}/bulan${strategyNiche ? ` · Niche: ${strategyNiche}` : ""}`);
+    lines.push("Pola: insight → produksi → posting → evaluasi → ulang");
+    lines.push("");
+    (strategyData.phases || []).forEach((ph: any, pi: number) => {
+      lines.push(`━━━ ${ph.week}: ${ph.title} ━━━`);
+      if (ph.focus) lines.push(`🎯 ${ph.focus}`);
+      lines.push(`💰 Target: Rp ${Number(ph.targetRp || 0).toLocaleString("id-ID")} · ~${ph.targetSales || 0} penjualan`);
+      (ph.actions || []).forEach((a: any, ai: number) => {
+        const id = `${pi}-${ai}`;
+        const isHarian = a.kind === "harian";
+        const mark = isHarian ? ((strategyData.prog[id] || 0) > 0 ? "✅" : "⬜") : (strategyData.done[id] ? "✅" : "⬜");
+        const tag = isHarian ? "[HARIAN]" : "[SEKALI]";
+        lines.push(`  ${mark} ${tag} ${a.t}`);
+      });
+      if (ph.decision) lines.push(`  🧭 Kapan putuskan: ${ph.decision}`);
+      lines.push("");
+    });
+    if (strategyData.tips) lines.push(`💡 ${strategyData.tips}`);
+    return lines.join("\n").trim();
+  };
+
+  const copyStrategy = () => {
+    if (!strategyData.phases || strategyData.phases.length === 0) {
+      showNotification("Belum ada strategi buat disalin.", "info");
+      return;
+    }
+    navigator.clipboard.writeText(buildStrategyText());
+    showNotification("Strategi minggu 1-4 disalin! Tempel di Notes/WA/catatan lu. 📋", "success");
+  };
+
   // AI Service 3: Generate Video Blueprint JSON
   const generateVisualBlueprintAI = async () => {
     setGeneratingBlueprint(true);
@@ -3961,9 +3996,16 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                   const pr = strategyProgress();
                   return (
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-[11px] font-mono">
-                        <span className="text-slate-400">Progres aksi</span>
-                        <span className="text-violet-300 font-bold">{pr.done}/{pr.total} · {pr.pct}%</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-mono text-slate-400">Progres aksi <span className="text-violet-300 font-bold">{pr.done}/{pr.total} · {pr.pct}%</span></span>
+                        <button
+                          onClick={copyStrategy}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-950/50 border border-violet-500/40 text-violet-300 hover:bg-violet-900/50 text-[11px] font-bold font-mono transition-all active:scale-95 shrink-0"
+                          title="Salin seluruh strategi minggu 1-4"
+                          id="btn-salin-strategi"
+                        >
+                          <Copy className="w-3.5 h-3.5" /> Salin Strategi
+                        </button>
                       </div>
                       <div className="h-2 bg-slate-850 rounded-full overflow-hidden">
                         <div className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all" style={{ width: `${pr.pct}%` }} />

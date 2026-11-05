@@ -153,20 +153,22 @@ app.post("/api/generate-narrative", async (req, res) => {
     const { productName, keyFeatures, targetAudience, userContext, toneStyle, voiceGender } = req.body;
     const genderLabel = voiceGender === "male" ? "Laki-laki (Pria, maskulin, bersahabat, gaya bro/sob)" : "Perempuan (Wanita, feminin, ceria, gaya bestie/sis)";
 
+    const prodName = (productName || "").toString().trim();
     const prompt = `
       Buatlah 1 draf naskah suara (Voice-Over) promosi video pendek yang sangat persuasif, kekinian, menggunakan bahasa kasual/gaul Indonesia (seperti kata 'racun banget', 'auto', 'wajib punya', 'checkout').
       Naskah harus sangat ringkas karena target durasi video maksimal 10 detik.
-      
+
       Informasi Produk:
-      - Nama Produk: ${productName || "Produk ini"}
+      - Nama Produk: ${prodName || "Produk ini"}
       - Fitur utama terdeteksi: ${keyFeatures || "kualitas premium"}
       - Target audiens: ${targetAudience || "umum / pencari produk hemat"}
       - Catatan tambahan pengguna: ${userContext || ""}
       - Gaya Tone: ${toneStyle || "Heboh & Persuasif (Racun TikTok)"}
       - Karakter Suara: ${genderLabel}
-      
+
       Aturan ketat:
-      - Naskah suara (VO) HARUS maksimal 180 karakter saja agar muat dibacakan dalam 10 detik!
+      ${prodName ? `- WAJIB & PALING PENTING: naskah HARUS menyebut nama produk "${prodName}" secara JELAS (persis atau nama intinya kalau kepanjangan). DILARANG KERAS mengganti, mengarang, atau memakai nama produk lain — nama di naskah harus produk yang SAMA dengan "${prodName}".` : `- Sebut produknya secara jelas (boleh "produk ini") dan konsisten; jangan mengarang nama merek acak.`}
+      - Naskah suara (VO) HARUS maksimal 180 karakter saja agar muat dibacakan dalam 10 detik! Kalau nama produk panjang, boleh pakai nama inti/merek-nya saja asal TETAP produk yang sama (jangan buang nama produknya demi hemat karakter).
       - Sesuaikan gaya sapaan dengan karakter suara (${voiceGender === "male" ? "misal: 'Bro', 'Guys', 'Kalian'" : "misal: 'Bestie', 'Girls', 'Kalian'"}).
       - Berikan respon dalam format JSON dengan properti 'narrative' (string).
     `;
@@ -186,6 +188,27 @@ app.post("/api/generate-narrative", async (req, res) => {
     });
 
     const parsedData = JSON.parse(response.text || "{}");
+
+    // GUARD: pastikan naskah benar-benar menyebut produknya. Kalau AI malah buang/ganti
+    // nama produk, ganti dgn template yang dijamin menyebut nama produk (hindari "nama produk tidak sesuai").
+    const narr = (parsedData.narrative || "").toString();
+    const STOP = new Set(["dan", "atau", "yang", "untuk", "dengan", "pencerah", "wajah", "cream", "the", "pack", "set", "original", "premium", "produk", "warna", "pcs"]);
+    const coreTokens = prodName
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !STOP.has(w));
+    const narrLower = narr.toLowerCase();
+    const mentionsProduct = !prodName || coreTokens.length === 0 || coreTokens.some((t) => narrLower.includes(t));
+    if (!mentionsProduct) {
+      const isMaleG = voiceGender === "male";
+      const feat = (keyFeatures || "kualitas premium").toString();
+      parsedData.narrative = isMaleG
+        ? `Bro, ${prodName} ini racun banget! Punya ${feat}. Auto wajib punya, buruan checkout di keranjang kuning!`
+        : `Bestie, ${prodName} ini racun banget! Punya ${feat}. Auto wajib punya, buruan checkout di keranjang kuning ya!`;
+      parsedData.nameFixed = true;
+    }
+
     return res.json(parsedData);
   } catch (error: any) {
     console.warn("Error generating narrative, using fallback:", error?.message || error);

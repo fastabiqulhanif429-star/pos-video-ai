@@ -763,26 +763,12 @@ export default function App() {
 
   // Gabungkan 3 scene -> 1 prompt single-shot (1 prompt = 1 video utuh 10 detik, bukan per-scene)
   const buildSingleVideoPrompt = (): string => {
-    const scenes = blueprint.scenes || [];
-    if (scenes.length === 0) return "";
-    const isMale = voiceGender === "male";
-    const creator = isMale
-      ? "a consistent 24-year-old stylish Indonesian male creator (keep the exact same face, hair and outfit for the entire video)"
-      : "a consistent 23-year-old stylish Indonesian female influencer (keep the exact same face, hair and outfit for the entire video)";
-    const beats = scenes
-      .map(
-        (s) =>
-          `• ${s.timestamp} — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`,
-      )
-      .join("\n");
-    const productClause = imageUrl
-      ? `PRODUCT LOCK (very important): the product in the video MUST exactly match the uploaded reference product photo — same packaging, label text, brand, colors and shape. Do NOT invent or substitute a different product. Keep the product identical and clearly visible throughout the whole video.`
-      : `Keep the product (${productName || "the product"}) consistent and clearly visible throughout the whole video.`;
-    return `Create ONE single continuous 10-second vertical 9:16 photorealistic affiliate video of ${creator} promoting ${productName || "the product"}.
-${productClause}
-IMPORTANT: output must be ONE seamless video from start to finish — do NOT generate separate clips, do NOT generate an image per scene. It is a single continuous take that smoothly transitions through three beats:
-${beats}
-Keep the SAME character identity, lighting mood and visual style across the whole video (no face/style change between beats). Overall aesthetic: ${blueprint.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous 10-second video, 9:16 vertical, photorealistic 8k, smooth camera motion. When uploading, attach the product reference photo so the product stays accurate.`;
+    return buildSingleVideoPromptFrom({
+      scenes: blueprint.scenes || [],
+      visualAesthetic: blueprint.visualAesthetic,
+      productName,
+      voiceGender,
+    });
   };
 
   const copySingleVideoPrompt = () => {
@@ -795,34 +781,31 @@ Keep the SAME character identity, lighting mood and visual style across the whol
   };
 
   // Versi MURNI buildSingleVideoPrompt — dari data item (buat Antrean/batch, gak gantung state editor)
+  // Struktur 3-bahan: Foto Statis 1 (hook) → Video Asli Pendek (B-roll demo) → Foto Statis 2 (CTA). 1 produk/video.
   const buildSingleVideoPromptFrom = (item: {
     scenes: any[];
     visualAesthetic?: string;
     productName?: string;
     voiceGender?: string;
-    hasImage?: boolean;
   }): string => {
     const scenes = item.scenes || [];
     if (scenes.length === 0) return "";
-    const isMale = item.voiceGender === "male";
     const pName = item.productName || "the product";
-    const creator = isMale
-      ? "a consistent 24-year-old stylish Indonesian male creator (keep the exact same face, hair and outfit for the entire video)"
-      : "a consistent 23-year-old stylish Indonesian female influencer (keep the exact same face, hair and outfit for the entire video)";
     const beats = scenes
       .map(
         (s) =>
-          `• ${s.timestamp} — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`
+          `• ${s.timestamp} [${s.materialType || "bahan"}] — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`
       )
       .join("\n");
-    const productClause = item.hasImage
-      ? `PRODUCT LOCK (very important): the product in the video MUST exactly match the uploaded reference product photo — same packaging, label text, brand, colors and shape. Do NOT invent or substitute a different product. Keep the product identical and clearly visible throughout the whole video.`
-      : `Keep the product (${pName}) consistent and clearly visible throughout the whole video.`;
-    return `Create ONE single continuous 10-second vertical 9:16 photorealistic affiliate video of ${creator} promoting ${pName}.
-${productClause}
-IMPORTANT: output must be ONE seamless video from start to finish — do NOT generate separate clips, do NOT generate an image per scene. It is a single continuous take that smoothly transitions through three beats:
+    return `Create ONE short continuous vertical 9:16 photorealistic affiliate video (~12 seconds) about ONE product only: ${pName}.
+This single video is ASSEMBLED from 3 materials for this one product — when generating in Flow/Veo, attach these materials:
+  1) a clear STATIC product photo (used for the hook / first 3s),
+  2) a short REAL B-ROLL clip of the product actually being used — applied to skin / poured / swatched / unboxed (used for the middle 3-8s),
+  3) a second STATIC product/packaging photo, e.g. BPOM/rating/claim (used for the CTA / last 3s).
+Keep the product ${pName} identical and clearly visible — same packaging, label, colors and shape; do NOT substitute or invent a different product. ONE product per video, do not mix other products.
+IMPORTANT: output must be ONE seamless ~12s video from start to finish — do NOT generate separate clips, do NOT generate an image per scene. It is a single continuous take that smoothly transitions through three beats (each beat notes which material it uses):
 ${beats}
-Keep the SAME character identity, lighting mood and visual style across the whole video (no face/style change between beats). Overall aesthetic: ${item.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous 10-second video, 9:16 vertical, photorealistic 8k, smooth camera motion. When uploading, attach the product reference photo so the product stays accurate.`;
+Keep the SAME creator identity (if a person appears), lighting mood and visual style across the whole video. Overall aesthetic: ${item.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous ~12-second video, 9:16 vertical, photorealistic 8k, smooth motion.`;
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1358,7 +1341,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
       const scenes = bpData.scenes || [];
       if (scenes.length === 0) throw new Error("blueprint kosong");
       const singlePrompt = buildSingleVideoPromptFrom({
-        scenes, visualAesthetic: bpData.visualAesthetic, productName: item.productName, voiceGender: item.gender, hasImage,
+        scenes, visualAesthetic: bpData.visualAesthetic, productName: item.productName, voiceGender: item.gender,
       });
       return { ...item, status: "done", result: { vo, scenes, visualAesthetic: bpData.visualAesthetic, hasImage, singlePrompt } };
     } catch (e: any) {
@@ -1638,9 +1621,9 @@ Keep the SAME character identity, lighting mood and visual style across the whol
         setSelectedSceneId(result.scenes[0].sceneId);
         addHistoryItem(productName, imageUrl, targetAudience, keyFeatures, colorsDetected, draftVoiceOver, selectedTone, result);
         if (result.isFallback) {
-          showNotification("Blueprint skenario video 10 detik berhasil disusun! 🎬", "success");
+          showNotification("Blueprint skenario video ~12 detik berhasil disusun! 🎬", "success");
         } else {
-          showNotification("Blueprint video 10 detik berhasil disusun! Siap digunakan.", "success");
+          showNotification("Blueprint video ~12 detik berhasil disusun! Siap digunakan.", "success");
         }
       } else {
         throw new Error("Format blueprint tidak valid atau kosong");
@@ -2203,99 +2186,20 @@ Keep the SAME character identity, lighting mood and visual style across the whol
             {/* FOTO/VISUAL PRODUCT COMPONENT */}
             <div className="space-y-4">
               <label className="text-[11px] uppercase tracking-wider text-slate-400 font-mono font-bold block">
-                Foto / Visual Produk
+                Bahan Video (disiapkan sendiri)
               </label>
 
-              {imageUrl ? (
-                <div className="relative group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex flex-col items-center justify-center min-h-[260px]">
-                  {analyzingImage && (
-                    <div className="absolute inset-0 bg-black/85 backdrop-blur-sm z-10 flex flex-col items-center justify-center p-6 text-center">
-                      <RefreshCw className="w-10 h-10 text-pink-500 animate-spin mb-4" />
-                      <p className="text-sm font-bold text-slate-100">Memindai Visual Produk...</p>
-                      <p className="text-xs text-slate-400 mt-2 max-w-xs">
-                        Mengidentifikasi kain, material, warna, model, dan tekstur produk otomatis menggunakan Google Vision AI.
-                      </p>
-                    </div>
-                  )}
-
-                  <img
-                    src={imageUrl}
-                    alt="Uploaded Product Preview"
-                    referrerPolicy="no-referrer"
-                    className="max-h-[240px] w-auto object-contain p-2 rounded-xl transition-transform duration-500 group-hover:scale-105"
-                  />
-
-                  {/* Aesthetic analysis overlay */}
-                  <div className="w-full bg-slate-900/90 border-t border-slate-800 px-4 py-2 text-center flex items-center justify-between">
-                    <p className="text-[10px] text-slate-300 font-mono truncate">
-                      Gambar dimuat. AI mengenali warna & karakteristik visual.
-                    </p>
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="text-[10px] font-bold text-violet-400 hover:text-violet-300 font-mono underline"
-                    >
-                      Ganti Foto
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer min-h-[260px] transition-all group ${
-                    isDragging
-                      ? "border-pink-500 bg-pink-950/30 scale-[1.01] shadow-xl shadow-pink-500/10"
-                      : "border-slate-800 hover:border-violet-500/50 bg-slate-950/40 hover:bg-slate-900/30"
-                  }`}
-                >
-                  <div className="p-4 rounded-full bg-slate-900 border border-slate-800 group-hover:bg-violet-950/30 group-hover:border-violet-500/40 transition-colors mb-3">
-                    <Upload className="w-6 h-6 text-slate-400 group-hover:text-violet-400" />
-                  </div>
-                  <p className="text-sm font-semibold text-slate-200">
-                    {isDragging ? "Lepaskan Foto di Sini!" : "Upload atau Seret Foto Produk"}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1.5 max-w-[260px]">
-                    Seret file foto ke area ini atau klik untuk memilih file dari perangkat Anda
-                  </p>
-                  <div className="mt-4 flex flex-wrap gap-1.5 justify-center">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">PNG</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">JPG</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">WEBP</span>
-                  </div>
-                </div>
-              )}
-
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleImageUpload}
-                accept="image/*"
-                className="hidden"
-              />
-
-              {/* TEMPEL LINK FOTO (dari Shopee dll) */}
-              <div className="mt-2.5 flex items-center gap-2">
-                <div className="flex-1 flex items-center gap-2 bg-slate-950/40 border border-slate-800 focus-within:border-cyan-500/50 rounded-lg px-2.5 py-1.5 transition-all">
-                  <ShoppingBag className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                  <input
-                    type="text"
-                    value={editorPhotoUrl}
-                    onChange={(e) => setEditorPhotoUrl(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !loadingEditorPhoto) handleEditorPhotoUrl(); }}
-                    placeholder="...atau tempel link foto produk (klik kanan foto → Salin alamat gambar)"
-                    className="flex-1 min-w-0 bg-transparent text-[11px] text-slate-200 placeholder:text-slate-600 outline-none"
-                  />
-                </div>
-                <button
-                  onClick={handleEditorPhotoUrl}
-                  disabled={loadingEditorPhoto}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600/80 hover:bg-cyan-500 text-white text-[11px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0"
-                >
-                  {loadingEditorPhoto ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                  Muat
-                </button>
+              <div className="rounded-xl border border-amber-500/25 bg-amber-950/10 p-4 space-y-2.5">
+                <p className="text-[11px] text-slate-300 leading-relaxed flex items-start gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+                  Foto &amp; video produk <b className="text-amber-300">diupload langsung di Google Flow/Veo</b> pas generate — bukan di sini. Siapkan 3 bahan per 1 produk:
+                </p>
+                <ul className="text-[11px] text-slate-400 space-y-1.5">
+                  <li className="flex gap-2"><span>📸</span><span><b className="text-slate-200">Foto 1</b> — produk clear/close-up kemasan <span className="text-slate-600">(buat hook 3 detik awal)</span></span></li>
+                  <li className="flex gap-2"><span>🎥</span><span><b className="text-slate-200">Video asli ~5 dtk</b> — produk dipakai/dioles/ditetes/unboxing <span className="text-slate-600">(buat tengah)</span></span></li>
+                  <li className="flex gap-2"><span>📸</span><span><b className="text-slate-200">Foto 2</b> — kemasan/tekstur/klaim BPOM/rating <span className="text-slate-600">(buat CTA akhir)</span></span></li>
+                </ul>
+                <p className="text-[10px] text-slate-500 border-t border-amber-500/15 pt-2">💡 Prompt yang digenerate bakal nandain bahan mana dipasang di scene mana. 1 video = 1 produk.</p>
               </div>
 
               {/* INPUT NAMA & TIPE PRODUK */}
@@ -2695,7 +2599,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                 Automasi Video Kreatif
               </span>
               <h3 className="text-sm font-extrabold text-slate-100 mt-0.5">
-                Buat Skenario Konten Pemasaran 10 Detik
+                Buat Skenario Konten Pemasaran ~12 Detik
               </h3>
               <p className="text-[11px] text-slate-400">
                 Analisis visual, gaya ornamen overlay & arsitektur naskah
@@ -2721,13 +2625,13 @@ Keep the SAME character identity, lighting mood and visual style across the whol
             </button>
           </div>
 
-          {/* TIMELINE / STORYBOARD PREVIEW (Durasi Video - 10 Detik) */}
+          {/* TIMELINE / STORYBOARD PREVIEW (Durasi Video - ~12 Detik) */}
           <div className="bg-[#10111a]/95 border border-slate-800/80 rounded-2xl p-5 shadow-xl">
             
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-800/80">
               <div>
                 <h3 className="text-xs uppercase font-extrabold text-slate-200 tracking-wider font-mono">
-                  Alur Rencana Durasi Video (10 Detik)
+                  Alur Rencana Durasi Video (~12 Detik)
                 </h3>
                 <p className="text-[10px] text-slate-400 font-mono">Format Vertikal Affiliate 9:16</p>
               </div>
@@ -2771,7 +2675,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                 )}
                 <div className="flex items-center gap-1 bg-slate-900 border border-slate-800/80 px-2.5 py-1 rounded-lg text-[10px] text-slate-400">
                   <Clock className="w-3.5 h-3.5 text-violet-400" />
-                  <span>Total: 10 Detik</span>
+                  <span>Total: ~12 Detik</span>
                 </div>
               </div>
             </div>
@@ -2782,7 +2686,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                 <Sparkle className="w-8 h-8 text-violet-400/40 mb-3 animate-pulse" />
                 <p className="text-xs font-bold text-slate-300">Belum ada Blueprint visual yang dibuat</p>
                 <p className="text-[10px] text-slate-500 max-w-sm mt-1 leading-normal">
-                  Unggah gambar produk atau pilih preset, pastikan naskah suara telah terisi, lalu klik <span className="text-pink-400 font-bold">"BUAT SKRIP VISUAL (JSON)"</span> untuk men-generate otomatis skenario video 10 detik.
+                  Isi nama produk (atau pilih preset / lewat Riset Produk) & naskah suara, lalu klik <span className="text-pink-400 font-bold">"BUAT SKRIP VISUAL (JSON)"</span> untuk men-generate otomatis skenario video ~12 detik (3 bahan: foto, video asli, foto).
                 </p>
               </div>
             ) : (
@@ -2813,6 +2717,13 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                             {scene.timestamp}
                           </span>
                         </div>
+
+                        {/* Bahan yang dipakai scene ini */}
+                        {scene.materialType && (
+                          <span className="inline-block mt-1.5 text-[8px] font-bold font-mono px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-700/60 text-slate-300">
+                            {scene.materialType.startsWith("Video") ? "🎥 " : "📸 "}{scene.materialType.replace(/\s*\(.*\)/, "")}
+                          </span>
+                        )}
 
                         {/* Short text overlay preview */}
                         <p className="text-[11px] font-extrabold text-slate-200 mt-2 line-clamp-1">
@@ -3098,7 +3009,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                 </div>
               </div>
               <p className="text-[10px] text-slate-500 leading-normal mt-2.5">
-                💡 <b className="text-emerald-400">Mau 1 video utuh?</b> Pakai <b className="text-slate-300">"SALIN PROMPT 1 VIDEO"</b> — 1 prompt gabungan jadi 1 video 10 detik. Kalau pakai JSON per scene, tiap scene bisa ke-generate jadi klip terpisah (3 video). Tempel di Google Flow / Veo bareng foto produk Anda.
+                💡 <b className="text-emerald-400">Mau 1 video utuh?</b> Pakai <b className="text-slate-300">"SALIN PROMPT 1 VIDEO"</b> — 1 prompt gabungan jadi 1 video ~12 detik. Kalau pakai JSON per scene, tiap scene bisa ke-generate jadi klip terpisah (3 video). Tempel di Google Flow / Veo bareng foto produk Anda.
               </p>
             </div>
           )}
@@ -3184,7 +3095,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
               </h4>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Ekspor struktur video 10 detik lengkap dengan naskah per scene, audio cue, teks overlay berukuran besar, rekomendasi aksi affiliate, serta deskripsi prompt visual untuk di-generate di Veo / Flow.
+              Ekspor struktur video ~12 detik lengkap dengan naskah per scene, audio cue, teks overlay berukuran besar, rekomendasi aksi affiliate, serta deskripsi prompt visual untuk di-generate di Veo / Flow.
             </p>
           </div>
 
@@ -4707,7 +4618,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                     </div>
                     <p className="text-[10px] text-slate-500 leading-relaxed flex items-start gap-1.5">
                       <Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />
-                      Merek dari pengetahuan AI — <b className="text-slate-400">cek harga &amp; stok asli di Shopee</b>. Pilih merek, lalu tempel link foto produknya biar langsung masuk ke editor.
+                      Merek dari pengetahuan AI — <b className="text-slate-400">cek harga &amp; stok asli di Shopee</b>. Pilih merek buat langsung bikin naskah + blueprint videonya (foto/video produk lu siapin sendiri & upload di Flow).
                     </p>
 
                     {loadingBrands && (
@@ -4747,45 +4658,12 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                                 <ShoppingBag className="w-3 h-3" /> Cari di Shopee <ExternalLink className="w-2.5 h-2.5" />
                               </a>
                               <button
-                                onClick={() => { setSelectedBrandIdx(selectedBrandIdx === bi ? null : bi); setPhotoUrlInput(""); }}
-                                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold font-mono transition-all active:scale-95 ${selectedBrandIdx === bi ? "bg-cyan-500 text-slate-950" : "bg-slate-800/60 border border-slate-700 text-slate-200 hover:bg-slate-700/60"}`}
+                                onClick={() => useBrandForVideo(b)}
+                                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold font-mono transition-all active:scale-95 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
                               >
-                                <Check className="w-3 h-3" /> {selectedBrandIdx === bi ? "Terpilih" : "Pilih Merek Ini"}
+                                <Video className="w-3 h-3" /> Pakai Merek Ini buat Video
                               </button>
                             </div>
-
-                            {selectedBrandIdx === bi && (
-                              <div className="mt-3 pt-3 border-t border-slate-800/60 space-y-2">
-                                <label className="text-[10px] font-bold uppercase tracking-wider font-mono text-slate-400 block">
-                                  Tempel link foto produk dari Shopee
-                                </label>
-                                <p className="text-[10px] text-slate-500 leading-relaxed">Di Shopee: klik kanan foto produk → <b className="text-slate-400">"Salin alamat gambar"</b>, lalu tempel di sini. Foto bakal otomatis masuk ke bagian upload &amp; dianalisis AI.</p>
-                                <div className="flex gap-2">
-                                  <input
-                                    type="text"
-                                    value={photoUrlInput}
-                                    onChange={(e) => setPhotoUrlInput(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === "Enter" && !loadingPhotoUrl) handlePastePhotoForBrand(); }}
-                                    placeholder="https://down-id.img.susercontent.com/....jpg"
-                                    className="flex-1 min-w-0 bg-[#0b0c15] border border-slate-800 focus:border-cyan-500/60 rounded-lg px-3 py-2 text-[11px] text-slate-100 placeholder:text-slate-600 outline-none"
-                                  />
-                                  <button
-                                    onClick={handlePastePhotoForBrand}
-                                    disabled={loadingPhotoUrl}
-                                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-violet-600 via-pink-500 to-amber-500 text-white text-[11px] font-extrabold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0"
-                                  >
-                                    {loadingPhotoUrl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Video className="w-3.5 h-3.5" />}
-                                    Pakai Foto
-                                  </button>
-                                </div>
-                                <button
-                                  onClick={() => useBrandForVideo(b)}
-                                  className="text-[10px] font-mono text-slate-400 hover:text-cyan-300 underline underline-offset-2"
-                                >
-                                  Lewati foto, bikin video tanpa foto dulu →
-                                </button>
-                              </div>
-                            )}
                           </div>
                         ))}
                       </div>
@@ -5408,7 +5286,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                       </div>
                       <div>
                         <h4 className="text-sm font-extrabold text-white uppercase font-mono">
-                          Langkah 4: Formula Blueprint Video 10 Detik Berkonversi
+                          Langkah 4: Formula Blueprint Video ~12 Detik Berkonversi
                         </h4>
                         <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
                           Video pendek affiliate yang menghasilkan penjualan terbanyak selalu mengikuti formula terstruktur 3-Scene:

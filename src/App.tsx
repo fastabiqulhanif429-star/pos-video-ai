@@ -1972,8 +1972,9 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                 {/* Main script typing drafting */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <label className="text-[11px] uppercase tracking-wider text-slate-400 font-mono font-bold">
+                    <label className="text-[11px] uppercase tracking-wider text-slate-400 font-mono font-bold flex items-center gap-1.5">
                       Draf Naskah Utama
+                      <span className="normal-case tracking-normal text-[9px] font-semibold text-emerald-300 bg-emerald-950/40 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">✏️ bisa diedit</span>
                     </label>
                     <div className="flex items-center gap-1.5">
                       <button
@@ -2012,6 +2013,12 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                       <span>karakter</span>
                     </div>
                   </div>
+
+                  {/* Hint: naskah bisa diketik/diubah manual */}
+                  <p className="text-[10px] text-slate-500 flex items-start gap-1.5 -mt-1.5">
+                    <Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />
+                    Ketik langsung di kotak atas buat ubah/koreksi naskah (typo, nama produk, CTA). Editanmu dipakai apa adanya buat suara &amp; skrip video — <b className="text-slate-400">nggak akan ditimpa</b> kecuali kamu generate ulang (Buat AI / Pilih Gaya AI / Pindai Ulang foto).
+                  </p>
 
                   {/* AUDIO TTS CONTROLS BAR */}
                   <div className="bg-[#08090f] p-3 rounded-xl border border-slate-850 space-y-2.5">

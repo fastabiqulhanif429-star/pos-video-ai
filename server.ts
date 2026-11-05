@@ -594,6 +594,160 @@ app.post("/api/verify-brands", async (req, res) => {
   }
 });
 
+// Endpoint 7: Strategi AI Affiliate — rencana EKSEKUSI per fase menuju target komisi/bulan.
+// Pola: insight → produksi → posting → evaluasi → ulang (ala "Strategi AI" clipper, versi affiliate).
+app.post("/api/generate-strategy", async (req, res) => {
+  try {
+    const { targetRp, platform, niche, insights } = req.body;
+    const target = Number(targetRp) > 0 ? Number(targetRp) : 2000000;
+    const insightList = Array.isArray(insights)
+      ? insights.map((x: any) => String(x).trim()).filter(Boolean).slice(0, 15)
+      : [];
+    const plat = platform || "TikTok Affiliate (Shop) + Shopee Video/Affiliate";
+    const nicheTxt = niche || "produk affiliate viral (skincare, household, gadget murah)";
+
+    const prompt = `
+      Kamu AHLI STRATEGI konten affiliate short-form Indonesia. Bikinkan rencana EKSEKUSI realistis & actionable
+      (bahasa Indonesia santai, gaya mentor yang jujur) untuk seorang PEMULA SOLO yang mau cuan dari AFFILIATE lewat video pendek AI.
+
+      KONTEKS & REALITA (WAJIB dipakai):
+      - Model cuan: KOMISI affiliate (per penjualan/checkout), BUKAN adsense views. Target: Rp ${target.toLocaleString("id-ID")}/bulan.
+      - Platform: ${plat}. Niche fokus: ${nicheTxt}.
+      - Tool yang dipunya: app "POS Video AI" ini sendiri — Riset Produk AI (cari ide produk + keyword Shopee), Verifikasi Merek (AI brand guide + paste foto produk), generator naskah Voice-Over + blueprint video 9:16, dan "Prompt 1 Video" buat Google Flow/Veo (1 prompt → 1 video utuh, produk ke-lock dari foto).
+      - Realita cold-start: video awal views kecil & konversi nol itu NORMAL. Bottleneck utama = KONSISTENSI + HOOK + relevansi produk ke audiens, bukan jumlah produksi.
+      - ATURAN KERAS (kebawa ke aksi tiap fase):
+        (1) Fokus 1 niche + 2-3 produk dulu, JANGAN loncat-loncat niche tiap hari (algoritma affiliate butuh sinyal audiens yang konsisten).
+        (2) WAJIB pasang link affiliate yang BENAR di tiap video (keranjang kuning TikTok / link Shopee affiliate). Video viral tanpa link = komisi nol.
+        (3) Daur ulang = REMIX TOTAL: ganti hook 3 detik, ganti angle, ganti VO — jangan re-upload video sama (hindari deteksi unoriginal).
+        (4) Evaluasi JANGAN cuma views. Metrik affiliate: CTR ke produk (klik keranjang) + KONVERSI (checkout/komisi). Video views tinggi tapi klik rendah = masalah CTA/soft-selling; klik tinggi konversi rendah = masalah harga/produk/trust.
+        (5) Jeda antar posting 3-4 jam, posting NATIVE dari HP (hindari watermark & shadow-ban). Scale ke lebih banyak akun/produk HANYA setelah 1 akun kebukti ada komisi masuk.
+        (6) Ritme: produksi batch KECIL (2-4 video) → posting → amati 3-7 hari → evaluasi CTR/konversi → perbaiki → ulang. Jangan pre-produksi 20 video sekaligus.
+      - Ramp realistis: Minggu 1 = Rp 0 (fase belajar hook & pasang link, target: 10-14 video + sistem jalan). Minggu 2 = komisi pertama kecil. Minggu 3 = gandakan pola produk/hook yang ada konversinya. Minggu 4 = panen + scale produk winner menuju target bulanan.
+      ${insightList.length ? `\n      INSIGHT/CATATAN REAL dari user (WAJIB dipertimbangkan & sesuaikan plan-nya): ${insightList.map((x) => '"' + x.slice(0, 140) + '"').join("; ")}.\n` : ""}
+      TUGAS: Buat 4 FASE (per minggu). Tiap fase: "week" (cth "Minggu 1"), "title", "focus" (1 kalimat), "targetRp" (angka rupiah kumulatif realistis fase itu), "targetSales" (perkiraan jumlah penjualan/checkout fase itu, angka), "actions" (3-5 aksi), dan "decision" (1 kalimat "kapan putuskan" lanjut/pivot).
+      TIAP AKSI tandai jenisnya: "harian" = berulang tiap hari (cth posting 2 video/hari, bales komen, cek 1 produk baru) → tulis per-hari, JANGAN kasih angka total minggu. "sekali" = one-time (cth riset produk, daftar affiliate, setup etalase, pasang bio link).
+      Aksi harus KECIL & FLEKSIBEL (jangan bikin user tertekan), pakai rentang ("posting 2-3 video/hari"), dan sebut tool app ini di aksi yang relevan (cth "pakai Riset Produk AI buat...", "generate 'Prompt 1 Video' buat...").
+
+      Balas JSON dengan properti 'phases' (array) dan 'tips' (string 1-2 kalimat penutup).
+    `;
+
+    const response = await generateWithFallback({
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            phases: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  week: { type: Type.STRING },
+                  title: { type: Type.STRING },
+                  focus: { type: Type.STRING },
+                  targetRp: { type: Type.NUMBER },
+                  targetSales: { type: Type.NUMBER },
+                  actions: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        t: { type: Type.STRING },
+                        kind: { type: Type.STRING },
+                      },
+                      required: ["t", "kind"],
+                    },
+                  },
+                  decision: { type: Type.STRING },
+                },
+                required: ["week", "title", "focus", "targetRp", "targetSales", "actions", "decision"],
+              },
+            },
+            tips: { type: Type.STRING },
+          },
+          required: ["phases", "tips"],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text || "{}");
+    const phases = (parsed.phases || []).map((p: any) => ({
+      ...p,
+      actions: (p.actions || []).map((a: any) =>
+        typeof a === "string"
+          ? { t: a, kind: "sekali" }
+          : { t: a.t || a.text || "", kind: a.kind === "harian" ? "harian" : "sekali" }
+      ),
+    }));
+    return res.json({ phases, tips: parsed.tips || "", goalRp: target });
+  } catch (error: any) {
+    console.warn("Error generating strategy, using fallback:", error?.message || error);
+    const target = Number(req.body?.targetRp) > 0 ? Number(req.body.targetRp) : 2000000;
+    return res.json({
+      goalRp: target,
+      tips: "Jangan panik kalau komisi awal nol — fokus benerin HOOK 3 detik & pastikan link affiliate kepasang. Konsistensi 2 video/hari ngalahin viral sekali-sekali.",
+      isFallback: true,
+      errorDetail: error?.message || "Quota limit exceeded",
+      phases: [
+        {
+          week: "Minggu 1",
+          title: "Fase Setup & Belajar Hook",
+          focus: "Bangun sistem: daftar affiliate, pasang link, dan produksi 10-14 video pertama buat nemu hook yang nahan 3 detik.",
+          targetRp: 0,
+          targetSales: 0,
+          actions: [
+            { t: "Daftar TikTok Affiliate / Shopee Affiliate & aktifkan keranjang kuning (sekali setup).", kind: "sekali" },
+            { t: "Pakai Riset Produk AI → pilih 2-3 produk di 1 niche yang sama, jangan loncat niche.", kind: "sekali" },
+            { t: "Generate 'Prompt 1 Video' buat tiap produk, lalu posting 2 video/hari native dari HP (jeda 3-4 jam).", kind: "harian" },
+            { t: "WAJIB tempel link affiliate yang benar di tiap video sebelum posting.", kind: "harian" },
+          ],
+          decision: "Akhir Minggu 1: kalau ada 1-2 video tembus >1000 views / retensi naik → lanjut gandakan; kalau semua retensi <40% → benerin HOOK, bukan ganti produk.",
+        },
+        {
+          week: "Minggu 2",
+          title: "Fase Validasi Pola & Komisi Pertama",
+          focus: "Lipat gandakan hook yang terbukti nahan penonton & kejar klik keranjang pertama.",
+          targetRp: Math.round(target * 0.1),
+          targetSales: 2,
+          actions: [
+            { t: "Replikasi 3-5 variasi dari video retensi terbaik (ganti hook & angle, jangan re-upload sama).", kind: "harian" },
+            { t: "Posting 2-3 video/hari + bales komen 'link?' dengan arahan ke keranjang.", kind: "harian" },
+            { t: "Catat CTR (klik keranjang) & konversi per video, bukan cuma views.", kind: "harian" },
+          ],
+          decision: "Kalau ada klik tapi nol checkout → cek harga/trust produk; kalau views tinggi klik rendah → perbaiki CTA/soft-selling.",
+        },
+        {
+          week: "Minggu 3",
+          title: "Fase Scaling Produk Winner",
+          focus: "Fokuskan tenaga ke produk & angle yang udah ada konversinya, tambah 1-2 produk sejenis.",
+          targetRp: Math.round(target * 0.35),
+          targetSales: 8,
+          actions: [
+            { t: "Gandakan produk winner → 5 variasi video/produk pakai generator app.", kind: "harian" },
+            { t: "Tambah 1-2 produk baru di niche yang sama lewat Riset Produk AI.", kind: "sekali" },
+            { t: "Naikin volume ke 3 video/hari kalau workflow udah lancar.", kind: "harian" },
+          ],
+          decision: "Akhir Minggu 3: kalau komisi stabil naik → siapkan panen; kalau mentok → pivot angle/produk, pertahankan niche.",
+        },
+        {
+          week: "Minggu 4",
+          title: "Fase Panen & Optimasi Komisi",
+          focus: "Maksimalkan komisi dari produk winner & momen (payday/tanggal kembar) menuju target bulanan.",
+          targetRp: target,
+          targetSales: 20,
+          actions: [
+            { t: "Dorong produk winner saat momen belanja (tanggal kembar, gajian, flash sale).", kind: "harian" },
+            { t: "Posting 3 video/hari konsisten, prioritas jam ramai audiens.", kind: "harian" },
+            { t: "Evaluasi menyeluruh: produk & hook mana yang paling banyak komisi → cetak biru bulan depan.", kind: "sekali" },
+          ],
+          decision: "Kalau nyentuh target → kunci pola jadi SOP bulan depan + pertimbangkan tambah akun ke-2.",
+        },
+      ],
+    });
+  }
+});
+
 // Endpoint 6: Ambil gambar dari URL (paste link foto produk) -> base64 (hindari CORS browser)
 app.post("/api/fetch-image", async (req, res) => {
   try {

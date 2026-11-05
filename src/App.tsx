@@ -48,7 +48,12 @@ import {
   Target,
   ShoppingBag,
   TrendingUp,
-  Loader2
+  Loader2,
+  Rocket,
+  Plus,
+  Minus,
+  Trophy,
+  Compass
 } from "lucide-react";
 import { PRODUCT_TEMPLATES, ProductTemplate } from "./templates";
 import { VideoBlueprint, Scene } from "./types";
@@ -271,6 +276,42 @@ export default function App() {
   // Paste foto di editor (bagian upload)
   const [editorPhotoUrl, setEditorPhotoUrl] = useState<string>("");
   const [loadingEditorPhoto, setLoadingEditorPhoto] = useState<boolean>(false);
+
+  // Strategi AI Affiliate state (plan per fase menuju target komisi/bulan — persist di localStorage)
+  const [isStrategyModalOpen, setIsStrategyModalOpen] = useState<boolean>(false);
+  const [strategyTargetRp, setStrategyTargetRp] = useState<number>(() => {
+    const s = parseInt(safeStorage.getItem("affos_strategy_target") || "", 10);
+    return s > 0 ? s : 2000000;
+  });
+  const [strategyNiche, setStrategyNiche] = useState<string>(() => safeStorage.getItem("affos_strategy_niche") || "");
+  const [strategyData, setStrategyData] = useState<{
+    phases: any[];
+    tips: string;
+    goalRp?: number;
+    generatedAt?: string;
+    done: Record<string, boolean>;
+    prog: Record<string, number>;
+  }>(() => {
+    try {
+      const saved = safeStorage.getItem("affos_strategy");
+      if (saved) {
+        const p = JSON.parse(saved);
+        return { phases: p.phases || [], tips: p.tips || "", goalRp: p.goalRp, generatedAt: p.generatedAt, done: p.done || {}, prog: p.prog || {} };
+      }
+    } catch (e) {}
+    return { phases: [], tips: "", done: {}, prog: {} };
+  });
+  const [generatingStrategy, setGeneratingStrategy] = useState<boolean>(false);
+  const [strategyIsFallback, setStrategyIsFallback] = useState<boolean>(false);
+  const [strategyInsight, setStrategyInsight] = useState<string>("");
+  const [strategyInsights, setStrategyInsights] = useState<string[]>(() => {
+    try {
+      const saved = safeStorage.getItem("affos_strategy_insights");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
 
   // History state & helpers
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
@@ -1053,6 +1094,99 @@ Keep the SAME character identity, lighting mood and visual style across the whol
     }
   };
 
+  // ===== STRATEGI AI AFFILIATE =====
+  // Simpan strategy ke localStorage tiap berubah
+  const persistStrategy = (next: typeof strategyData) => {
+    setStrategyData(next);
+    try {
+      safeStorage.setItem("affos_strategy", JSON.stringify(next));
+    } catch (e) {}
+  };
+
+  const generateStrategy = async (insightsOverride?: string[]) => {
+    setGeneratingStrategy(true);
+    showNotification("AI lagi nyusun strategi affiliate per fase...", "info");
+    try {
+      const insights = insightsOverride ?? strategyInsights;
+      const response = await fetch("/api/generate-strategy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetRp: strategyTargetRp,
+          niche: strategyNiche,
+          platform: "TikTok Affiliate (Shop) + Shopee Video/Affiliate",
+          insights,
+        }),
+      });
+      if (!response.ok) throw new Error("Gagal menyusun strategi");
+      const result = await response.json();
+      if (result.phases && result.phases.length > 0) {
+        // Plan baru = aksi baru → reset progres (id berbasis index gak bisa dipetakan dari plan lama)
+        const next = {
+          phases: result.phases,
+          tips: result.tips || "",
+          goalRp: result.goalRp || strategyTargetRp,
+          generatedAt: new Date().toISOString(),
+          done: {},
+          prog: {},
+        };
+        persistStrategy(next);
+        setStrategyIsFallback(!!result.isFallback);
+        try { safeStorage.setItem("affos_strategy_target", String(strategyTargetRp)); } catch (e) {}
+        try { safeStorage.setItem("affos_strategy_niche", strategyNiche); } catch (e) {}
+        showNotification(
+          result.isFallback ? "Strategi siap (profil cepat)! 🚀" : "Strategi 4 fase berhasil disusun! 🚀",
+          "success"
+        );
+      } else {
+        throw new Error("Hasil strategi kosong");
+      }
+    } catch (error) {
+      console.error(error);
+      showNotification("Gagal menyusun strategi. Model AI mungkin lagi sibuk, coba lagi sebentar.", "error");
+    } finally {
+      setGeneratingStrategy(false);
+    }
+  };
+
+  // Aksi "sekali" → centang; "harian" → counter progres
+  const toggleStrategyAction = (pi: number, ai: number) => {
+    const id = `${pi}-${ai}`;
+    const next = { ...strategyData, done: { ...strategyData.done, [id]: !strategyData.done[id] } };
+    persistStrategy(next);
+  };
+  const tickStrategyAction = (pi: number, ai: number, delta: number) => {
+    const id = `${pi}-${ai}`;
+    const cur = strategyData.prog[id] || 0;
+    const next = { ...strategyData, prog: { ...strategyData.prog, [id]: Math.max(0, cur + delta) } };
+    persistStrategy(next);
+  };
+
+  // Tambah insight → simpan + regenerate plan (plan nyesuaiin ke insight)
+  const addStrategyInsight = async () => {
+    const txt = strategyInsight.trim();
+    if (!txt) return;
+    const nextInsights = [...strategyInsights, txt].slice(-15);
+    setStrategyInsights(nextInsights);
+    setStrategyInsight("");
+    try { safeStorage.setItem("affos_strategy_insights", JSON.stringify(nextInsights)); } catch (e) {}
+    showNotification("Insight disimpan — nyusun ulang strategi...", "info");
+    await generateStrategy(nextInsights);
+  };
+
+  // Progres total aksi (buat progress bar)
+  const strategyProgress = () => {
+    let total = 0, done = 0;
+    (strategyData.phases || []).forEach((ph: any, pi: number) => {
+      (ph.actions || []).forEach((a: any, ai: number) => {
+        total++;
+        const id = `${pi}-${ai}`;
+        if (a.kind === "harian" ? (strategyData.prog[id] || 0) > 0 : strategyData.done[id]) done++;
+      });
+    });
+    return { total, done, pct: total ? Math.round((done / total) * 100) : 0 };
+  };
+
   // AI Service 3: Generate Video Blueprint JSON
   const generateVisualBlueprintAI = async () => {
     setGeneratingBlueprint(true);
@@ -1390,6 +1524,17 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                   <span className="font-mono">Admin Aktif</span>
                 </button>
               )}
+
+              <button
+                onClick={() => setIsStrategyModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 font-semibold transition-all bg-gradient-to-r from-violet-950/50 to-fuchsia-950/40 border-violet-500/40 text-violet-300 hover:from-violet-900/50 hover:to-fuchsia-900/40 shadow-sm shadow-violet-500/10 active:scale-95"
+                title="Strategi AI: rencana cuan affiliate per fase"
+                id="btn-strategi-ai"
+              >
+                <Rocket className="w-3.5 h-3.5 text-violet-400" />
+                <span className="font-mono">Strategi AI</span>
+                <span className="text-[9px] bg-violet-500 text-slate-950 px-1 rounded font-mono font-bold">AI</span>
+              </button>
 
               <button
                 onClick={() => setIsResearchModalOpen(true)}
@@ -3710,7 +3855,223 @@ Keep the SAME character identity, lighting mood and visual style across the whol
         )}
       </AnimatePresence>
 
-      {/* History Modal */}
+      {/* MODAL: STRATEGI AI AFFILIATE */}
+      <AnimatePresence>
+        {isStrategyModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="strategy-modal">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-gradient-to-br from-violet-500 to-fuchsia-600 rounded-lg text-white shadow-lg shadow-violet-500/10">
+                    <Rocket className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-100">
+                      Strategi AI Affiliate
+                    </h3>
+                    <p className="text-[10px] text-slate-400">
+                      Rencana cuan per fase · pola: insight → produksi → posting → evaluasi → ulang
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsStrategyModalOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 overflow-y-auto flex-1 scrollbar-thin space-y-5">
+                {/* Setup target + niche */}
+                <div className="bg-[#10111a]/60 border border-slate-850 rounded-xl p-4 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-mono font-semibold text-slate-400 block mb-1">Target komisi / bulan (Rp)</label>
+                      <input
+                        type="number"
+                        value={strategyTargetRp}
+                        onChange={(e) => setStrategyTargetRp(parseInt(e.target.value, 10) || 0)}
+                        className="w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:border-violet-500/60 outline-none"
+                        placeholder="2000000"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-mono font-semibold text-slate-400 block mb-1">Niche fokus (opsional)</label>
+                      <input
+                        type="text"
+                        value={strategyNiche}
+                        onChange={(e) => setStrategyNiche(e.target.value)}
+                        className="w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:border-violet-500/60 outline-none"
+                        placeholder="cth: skincare, gadget murah, perlengkapan dapur"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => generateStrategy()}
+                    disabled={generatingStrategy}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white text-sm font-bold font-mono hover:from-violet-500 hover:to-fuchsia-500 shadow-lg shadow-violet-500/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {generatingStrategy ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Menyusun...</>
+                    ) : strategyData.phases.length > 0 ? (
+                      <><RefreshCw className="w-4 h-4" /> Bikin ulang strategi</>
+                    ) : (
+                      <><Rocket className="w-4 h-4" /> Bikin strategi AI</>
+                    )}
+                  </button>
+                  <p className="text-[10px] text-slate-500 leading-relaxed flex items-start gap-1.5">
+                    <Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />
+                    Ini saran strategi berbasis pola yang terbukti, <b className="text-slate-400">bukan jaminan cuan</b>. Cuan affiliate = komisi per penjualan; kuncinya konsistensi + hook + link affiliate kepasang.
+                  </p>
+                </div>
+
+                {strategyIsFallback && strategyData.phases.length > 0 && (
+                  <div className="text-[11px] text-amber-300 bg-amber-950/30 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-2">
+                    <Zap className="w-3.5 h-3.5 shrink-0" /> Strategi profil cepat (model AI sedang sibuk). Bikin ulang nanti buat versi yang lebih personal.
+                  </div>
+                )}
+
+                {/* Loading kosong */}
+                {generatingStrategy && strategyData.phases.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Loader2 className="w-8 h-8 text-violet-400 animate-spin mb-2" />
+                    <p className="text-xs text-slate-400">AI lagi nyusun rencana 4 fase buat lu...</p>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {!generatingStrategy && strategyData.phases.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-10 text-center">
+                    <Compass className="w-10 h-10 text-slate-700 mb-3" />
+                    <p className="text-sm text-slate-400 font-semibold">Belum ada strategi</p>
+                    <p className="text-[11px] text-slate-600 mt-1 max-w-sm">Isi target komisi & niche di atas, lalu klik "Bikin strategi AI". AI bakal bikin rencana 4 minggu yang bisa lu centang progresnya.</p>
+                  </div>
+                )}
+
+                {/* Progress bar */}
+                {strategyData.phases.length > 0 && (() => {
+                  const pr = strategyProgress();
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-mono">
+                        <span className="text-slate-400">Progres aksi</span>
+                        <span className="text-violet-300 font-bold">{pr.done}/{pr.total} · {pr.pct}%</span>
+                      </div>
+                      <div className="h-2 bg-slate-850 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all" style={{ width: `${pr.pct}%` }} />
+                      </div>
+                      {strategyData.tips && (
+                        <p className="text-[11px] text-slate-400 pt-1.5 flex items-start gap-1.5">
+                          <Lightbulb className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" /> {strategyData.tips}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Fase cards */}
+                {strategyData.phases.map((ph: any, pi: number) => (
+                  <div key={pi} className="border border-slate-850 rounded-xl overflow-hidden bg-[#10111a]/50">
+                    <div className="px-4 py-3 bg-gradient-to-r from-violet-950/30 to-transparent border-b border-slate-850">
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-violet-500/20 border border-violet-500/30 text-violet-300">{ph.week}</span>
+                            {pi === strategyData.phases.length - 1 && <Trophy className="w-3.5 h-3.5 text-amber-400" />}
+                          </div>
+                          <h4 className="text-sm font-bold text-white mt-1">{ph.title}</h4>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[11px] font-bold text-emerald-300">Rp {Number(ph.targetRp || 0).toLocaleString("id-ID")}</p>
+                          <p className="text-[9px] text-slate-500 font-mono">~{ph.targetSales || 0} penjualan</p>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1.5">🎯 {ph.focus}</p>
+                    </div>
+
+                    <div className="p-3 space-y-2">
+                      {(ph.actions || []).map((a: any, ai: number) => {
+                        const id = `${pi}-${ai}`;
+                        const isHarian = a.kind === "harian";
+                        const checked = !!strategyData.done[id];
+                        const count = strategyData.prog[id] || 0;
+                        return (
+                          <div key={ai} className={`flex items-start gap-2.5 rounded-lg px-3 py-2.5 border transition-all ${(isHarian ? count > 0 : checked) ? "border-emerald-500/30 bg-emerald-950/10" : "border-slate-850 bg-[#0b0c15]/40"}`}>
+                            {isHarian ? (
+                              <div className="flex items-center gap-1 shrink-0 mt-0.5">
+                                <button onClick={() => tickStrategyAction(pi, ai, -1)} className="w-5 h-5 flex items-center justify-center rounded bg-slate-850 text-slate-400 hover:text-white hover:bg-slate-800 transition-all"><Minus className="w-3 h-3" /></button>
+                                <span className="text-[11px] font-mono font-bold text-emerald-300 w-5 text-center">{count}</span>
+                                <button onClick={() => tickStrategyAction(pi, ai, 1)} className="w-5 h-5 flex items-center justify-center rounded bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900/60 transition-all"><Plus className="w-3 h-3" /></button>
+                              </div>
+                            ) : (
+                              <button onClick={() => toggleStrategyAction(pi, ai)} className="shrink-0 mt-0.5">
+                                {checked ? <CheckCircle className="w-5 h-5 text-emerald-400" /> : <div className="w-5 h-5 rounded-full border-2 border-slate-700" />}
+                              </button>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className={`text-[12px] leading-snug ${(isHarian ? count > 0 : checked) ? "text-slate-300" : "text-slate-200"}`}>{a.t}</p>
+                              <span className={`text-[8px] font-mono font-bold px-1 py-0.5 rounded mt-1 inline-block ${isHarian ? "bg-sky-950/60 text-sky-300 border border-sky-500/20" : "bg-slate-800 text-slate-400"}`}>{isHarian ? "HARIAN" : "SEKALI"}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {ph.decision && (
+                        <div className="mt-2 text-[11px] text-slate-400 bg-amber-950/10 border border-amber-500/15 rounded-lg px-3 py-2 flex items-start gap-1.5">
+                          <Compass className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+                          <span><b className="text-amber-300">Kapan putuskan:</b> {ph.decision}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Insight input → regenerate */}
+                {strategyData.phases.length > 0 && (
+                  <div className="bg-[#10111a]/60 border border-slate-850 rounded-xl p-4 space-y-2">
+                    <label className="text-[11px] font-mono font-semibold text-slate-400 flex items-center gap-1.5">
+                      <Lightbulb className="w-3.5 h-3.5 text-amber-400" /> Tambah insight (dari hasil nyata lu)
+                    </label>
+                    <p className="text-[10px] text-slate-500">Cth: "video skincare retensi bagus tapi klik keranjang rendah" — AI bakal sesuaikan strateginya.</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={strategyInsight}
+                        onChange={(e) => setStrategyInsight(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") addStrategyInsight(); }}
+                        className="flex-1 bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-[12px] text-slate-100 focus:border-violet-500/60 outline-none"
+                        placeholder="tulis insight, Enter buat update strategi"
+                      />
+                      <button
+                        onClick={addStrategyInsight}
+                        disabled={generatingStrategy || !strategyInsight.trim()}
+                        className="px-3 py-2 rounded-lg bg-violet-950/50 border border-violet-500/40 text-violet-300 hover:bg-violet-900/50 text-[12px] font-bold font-mono transition-all active:scale-95 disabled:opacity-40"
+                      >
+                        {generatingStrategy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Update"}
+                      </button>
+                    </div>
+                    {strategyInsights.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {strategyInsights.map((ins, ii) => (
+                          <span key={ii} className="text-[9px] text-slate-400 bg-slate-850 border border-slate-800 rounded px-1.5 py-0.5 max-w-[180px] truncate" title={ins}>💡 {ins}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* MODAL: RISET PRODUK AFFILIATE AI */}
       <AnimatePresence>
         {isResearchModalOpen && (

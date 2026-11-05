@@ -313,6 +313,31 @@ export default function App() {
     }
   });
 
+  // ===== ANTREAN / BATCH QUEUE (bikin stok prompt video sekaligus) =====
+  type QueueItem = {
+    id: string;
+    productName: string;
+    keyFeatures: string;
+    targetAudience: string;
+    photoUrl: string;
+    tone: string;
+    gender: string;
+    status: "pending" | "processing" | "done" | "error";
+    result?: { vo: string; scenes: any[]; visualAesthetic?: string; hasImage: boolean; singlePrompt: string };
+    error?: string;
+  };
+  const [isQueueModalOpen, setIsQueueModalOpen] = useState<boolean>(false);
+  const [queueItems, setQueueItems] = useState<QueueItem[]>(() => {
+    try {
+      const saved = safeStorage.getItem("affos_queue");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [processingQueue, setProcessingQueue] = useState<boolean>(false);
+  const [queueForm, setQueueForm] = useState({ productName: "", keyFeatures: "", targetAudience: "", photoUrl: "" });
+
   // History state & helpers
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
   const [historyList, setHistoryList] = useState<any[]>(() => {
@@ -745,6 +770,37 @@ Keep the SAME character identity, lighting mood and visual style across the whol
     }
     navigator.clipboard.writeText(buildSingleVideoPrompt());
     showNotification("Prompt 1 Video (single-shot) disalin! Tempel 1x di Flow/Veo → jadi 1 video utuh. 🎬", "success");
+  };
+
+  // Versi MURNI buildSingleVideoPrompt — dari data item (buat Antrean/batch, gak gantung state editor)
+  const buildSingleVideoPromptFrom = (item: {
+    scenes: any[];
+    visualAesthetic?: string;
+    productName?: string;
+    voiceGender?: string;
+    hasImage?: boolean;
+  }): string => {
+    const scenes = item.scenes || [];
+    if (scenes.length === 0) return "";
+    const isMale = item.voiceGender === "male";
+    const pName = item.productName || "the product";
+    const creator = isMale
+      ? "a consistent 24-year-old stylish Indonesian male creator (keep the exact same face, hair and outfit for the entire video)"
+      : "a consistent 23-year-old stylish Indonesian female influencer (keep the exact same face, hair and outfit for the entire video)";
+    const beats = scenes
+      .map(
+        (s) =>
+          `• ${s.timestamp} — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`
+      )
+      .join("\n");
+    const productClause = item.hasImage
+      ? `PRODUCT LOCK (very important): the product in the video MUST exactly match the uploaded reference product photo — same packaging, label text, brand, colors and shape. Do NOT invent or substitute a different product. Keep the product identical and clearly visible throughout the whole video.`
+      : `Keep the product (${pName}) consistent and clearly visible throughout the whole video.`;
+    return `Create ONE single continuous 10-second vertical 9:16 photorealistic affiliate video of ${creator} promoting ${pName}.
+${productClause}
+IMPORTANT: output must be ONE seamless video from start to finish — do NOT generate separate clips, do NOT generate an image per scene. It is a single continuous take that smoothly transitions through three beats:
+${beats}
+Keep the SAME character identity, lighting mood and visual style across the whole video (no face/style change between beats). Overall aesthetic: ${item.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous 10-second video, 9:16 vertical, photorealistic 8k, smooth camera motion. When uploading, attach the product reference photo so the product stays accurate.`;
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1222,6 +1278,125 @@ Keep the SAME character identity, lighting mood and visual style across the whol
     showNotification("Strategi minggu 1-4 disalin! Tempel di Notes/WA/catatan lu. 📋", "success");
   };
 
+  // ===== ANTREAN / BATCH QUEUE handlers =====
+  const persistQueue = (next: QueueItem[]) => {
+    setQueueItems(next);
+    try { safeStorage.setItem("affos_queue", JSON.stringify(next)); } catch (e) {}
+  };
+
+  const addToQueue = () => {
+    if (!queueForm.productName.trim()) {
+      showNotification("Isi dulu nama produknya ya.", "info");
+      return;
+    }
+    const item: QueueItem = {
+      id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      productName: queueForm.productName.trim(),
+      keyFeatures: queueForm.keyFeatures.trim(),
+      targetAudience: queueForm.targetAudience.trim(),
+      photoUrl: queueForm.photoUrl.trim(),
+      tone: selectedTone,
+      gender: voiceGender,
+      status: "pending",
+    };
+    persistQueue([...queueItems, item]);
+    setQueueForm({ productName: "", keyFeatures: "", targetAudience: "", photoUrl: "" });
+    showNotification(`"${item.productName}" masuk antrean. 📥`, "success");
+  };
+
+  const removeQueueItem = (id: string) => persistQueue(queueItems.filter((q) => q.id !== id));
+  const clearDoneQueue = () => persistQueue(queueItems.filter((q) => q.status !== "done"));
+
+  // Proses 1 item: generate VO -> blueprint -> single prompt
+  const processQueueItem = async (item: QueueItem): Promise<QueueItem> => {
+    try {
+      const hasImage = !!item.photoUrl;
+      // 1) Voice-over
+      const voResp = await fetch("/api/generate-narrative", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productName: item.productName, keyFeatures: item.keyFeatures, targetAudience: item.targetAudience,
+          userContext: "", toneStyle: item.tone, voiceGender: item.gender,
+        }),
+      });
+      const voData = await voResp.json();
+      const vo = voData.narrative || "";
+      // 2) Blueprint
+      const bpResp = await fetch("/api/generate-blueprint", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productName: item.productName, keyFeatures: item.keyFeatures, targetAudience: item.targetAudience,
+          voiceOverText: vo, creativeAccent: creativeAccent, mainTextStyle: mainTextStyle,
+          hasImage, voiceGender: item.gender,
+        }),
+      });
+      const bpData = await bpResp.json();
+      const scenes = bpData.scenes || [];
+      if (scenes.length === 0) throw new Error("blueprint kosong");
+      const singlePrompt = buildSingleVideoPromptFrom({
+        scenes, visualAesthetic: bpData.visualAesthetic, productName: item.productName, voiceGender: item.gender, hasImage,
+      });
+      return { ...item, status: "done", result: { vo, scenes, visualAesthetic: bpData.visualAesthetic, hasImage, singlePrompt } };
+    } catch (e: any) {
+      return { ...item, status: "error", error: e?.message || "gagal diproses" };
+    }
+  };
+
+  // Proses SEMUA item pending berurutan (robot kerja di background)
+  const processQueue = async () => {
+    if (processingQueue) return;
+    const pendingExists = queueItems.some((q) => q.status === "pending" || q.status === "error");
+    if (!pendingExists) {
+      showNotification("Nggak ada item antrean yang perlu diproses.", "info");
+      return;
+    }
+    setProcessingQueue(true);
+    showNotification("Robot mulai nge-render stok prompt... santai aja, bisa ditinggal. 🤖", "info");
+    // kerja dari snapshot, update state per item biar progres keliatan
+    let work = [...queueItems];
+    for (let i = 0; i < work.length; i++) {
+      if (work[i].status === "done") continue;
+      work = work.map((w, idx) => (idx === i ? { ...w, status: "processing" as const } : w));
+      persistQueue(work);
+      const processed = await processQueueItem(work[i]);
+      work = work.map((w, idx) => (idx === i ? processed : w));
+      persistQueue(work);
+    }
+    setProcessingQueue(false);
+    const doneCount = work.filter((w) => w.status === "done").length;
+    showNotification(`Stok siap! ${doneCount} prompt video kelar. Tinggal salin & tempel ke Flow. 🎬`, "success");
+  };
+
+  // Salin semua prompt yang udah jadi (buat distributor workflow)
+  const copyAllQueuePrompts = () => {
+    const done = queueItems.filter((q) => q.status === "done" && q.result?.singlePrompt);
+    if (done.length === 0) { showNotification("Belum ada prompt jadi buat disalin.", "info"); return; }
+    const text = done.map((q, i) => `===== VIDEO ${i + 1}: ${q.productName} =====\n${q.result!.singlePrompt}`).join("\n\n\n");
+    navigator.clipboard.writeText(text);
+    showNotification(`${done.length} prompt video disalin sekaligus! 📋`, "success");
+  };
+
+  // Muat 1 item jadi ke editor utama (buat finishing/edit manual)
+  const loadQueueItemToEditor = async (item: QueueItem) => {
+    if (!item.result) return;
+    setProductName(item.productName);
+    setKeyFeatures(item.keyFeatures);
+    setTargetAudience(item.targetAudience);
+    setDraftVoiceOver(item.result.vo);
+    setVoiceGender(item.gender as any);
+    setBlueprint({ scenes: item.result.scenes, visualAesthetic: item.result.visualAesthetic } as any);
+    if (item.result.scenes[0]?.sceneId) setSelectedSceneId(item.result.scenes[0].sceneId);
+    setIsQueueModalOpen(false);
+    showNotification(`"${item.productName}" dimuat ke editor.`, "success");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    if (item.photoUrl) {
+      try {
+        const { dataUrl } = await fetchImageDataUrl(item.photoUrl);
+        setImageUrl(dataUrl);
+      } catch (e) { /* foto opsional, abaikan kalau gagal */ }
+    }
+  };
+
   // AI Service 3: Generate Video Blueprint JSON
   const generateVisualBlueprintAI = async () => {
     setGeneratingBlueprint(true);
@@ -1569,6 +1744,19 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                 <Rocket className="w-3.5 h-3.5 text-violet-400" />
                 <span className="font-mono">Strategi AI</span>
                 <span className="text-[9px] bg-violet-500 text-slate-950 px-1 rounded font-mono font-bold">AI</span>
+              </button>
+
+              <button
+                onClick={() => setIsQueueModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 font-semibold transition-all bg-gradient-to-r from-amber-950/50 to-orange-950/40 border-amber-500/40 text-amber-300 hover:from-amber-900/50 hover:to-orange-900/40 shadow-sm shadow-amber-500/10 active:scale-95"
+                title="Antrean: bikin stok banyak prompt video sekaligus"
+                id="btn-antrean"
+              >
+                <Layers className="w-3.5 h-3.5 text-amber-400" />
+                <span className="font-mono">Antrean</span>
+                {queueItems.filter((q) => q.status === "done").length > 0 && (
+                  <span className="text-[9px] bg-emerald-500 text-slate-950 px-1 rounded font-mono font-bold">{queueItems.filter((q) => q.status === "done").length}</span>
+                )}
               </button>
 
               <button
@@ -3891,6 +4079,124 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                   <Check className="w-4.5 h-4.5" />
                   Selesai & Tutup Skenario
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: ANTREAN / BATCH QUEUE */}
+      <AnimatePresence>
+        {isQueueModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="queue-modal">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg text-white shadow-lg shadow-amber-500/10">
+                    <Layers className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-100">Antrean Produksi (Batch)</h3>
+                    <p className="text-[10px] text-slate-400">Masukin banyak produk sekaligus → robot bikin stok prompt video berurutan</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsQueueModalOpen(false)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 overflow-y-auto flex-1 scrollbar-thin space-y-5">
+                {/* Catatan jujur cara kerja */}
+                <p className="text-[10px] text-slate-500 leading-relaxed flex items-start gap-1.5 bg-[#10111a]/60 border border-slate-850 rounded-lg px-3 py-2">
+                  <Info className="w-3.5 h-3.5 text-amber-500/70 mt-0.5 shrink-0" />
+                  <span>Robot nge-batch bagian yang berat: <b className="text-slate-300">naskah suara + blueprint + prompt "1 Video"</b> buat tiap produk. Render 10 detiknya tetap di Google Flow/Veo (tempel prompt-nya). Jadi lu dapet <b className="text-slate-300">stok prompt siap-tempel</b> sekali duduk, tinggal distribusi.</span>
+                </p>
+
+                {/* Form tambah ke antrean */}
+                <div className="bg-[#10111a]/60 border border-slate-850 rounded-xl p-4 space-y-3">
+                  <h4 className="text-[11px] font-mono font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> Tambah produk ke antrean</h4>
+                  <input
+                    type="text" value={queueForm.productName}
+                    onChange={(e) => setQueueForm({ ...queueForm, productName: e.target.value })}
+                    placeholder="Nama produk (wajib) — cth: Glad2Glow Tone Up Cream"
+                    className="w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:border-amber-500/60 outline-none"
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <input type="text" value={queueForm.keyFeatures} onChange={(e) => setQueueForm({ ...queueForm, keyFeatures: e.target.value })} placeholder="Fitur utama (opsional)" className="w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-[13px] text-slate-100 focus:border-amber-500/60 outline-none" />
+                    <input type="text" value={queueForm.targetAudience} onChange={(e) => setQueueForm({ ...queueForm, targetAudience: e.target.value })} placeholder="Target audiens (opsional)" className="w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-[13px] text-slate-100 focus:border-amber-500/60 outline-none" />
+                  </div>
+                  <input type="text" value={queueForm.photoUrl} onChange={(e) => setQueueForm({ ...queueForm, photoUrl: e.target.value })} placeholder="Link foto produk (opsional) — biar prompt ke-lock ke produk ini" className="w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-[13px] text-slate-100 focus:border-amber-500/60 outline-none" />
+                  <p className="text-[10px] text-slate-600">Tone &amp; suara ngikutin setelan editor sekarang: <b className="text-slate-400">{selectedTone}</b> · {voiceGender === "male" ? "Laki-laki" : "Perempuan"}.</p>
+                  <button onClick={addToQueue} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-950/50 border border-amber-500/40 text-amber-300 hover:bg-amber-900/50 text-sm font-bold font-mono transition-all active:scale-[0.98]">
+                    <Plus className="w-4 h-4" /> Masukkan ke antrean
+                  </button>
+                </div>
+
+                {/* Kontrol proses */}
+                {queueItems.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={processQueue} disabled={processingQueue} className="flex-1 min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white text-sm font-bold font-mono hover:from-amber-400 hover:to-orange-500 shadow-lg shadow-amber-500/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed">
+                      {processingQueue ? (<><Loader2 className="w-4 h-4 animate-spin" /> Memproses...</>) : (<><Play className="w-4 h-4" /> Proses semua ({queueItems.filter((q) => q.status === "pending" || q.status === "error").length})</>)}
+                    </button>
+                    {queueItems.some((q) => q.status === "done") && (
+                      <>
+                        <button onClick={copyAllQueuePrompts} className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/50 text-[12px] font-bold font-mono transition-all active:scale-95"><Copy className="w-3.5 h-3.5" /> Salin semua prompt</button>
+                        <button onClick={clearDoneQueue} className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-850 text-[12px] font-bold font-mono transition-all active:scale-95"><Trash2 className="w-3.5 h-3.5" /> Bersihin yg jadi</button>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {queueItems.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-10 text-center">
+                    <Layers className="w-10 h-10 text-slate-700 mb-3" />
+                    <p className="text-sm text-slate-400 font-semibold">Antrean masih kosong</p>
+                    <p className="text-[11px] text-slate-600 mt-1 max-w-sm">Tambahin beberapa produk di atas (sekali duduk), lalu klik "Proses semua". Robot bikin stok prompt-nya berurutan — bisa ditinggal.</p>
+                  </div>
+                )}
+
+                {/* Daftar antrean */}
+                {queueItems.length > 0 && (
+                  <div className="space-y-2.5">
+                    {queueItems.map((q, qi) => (
+                      <div key={q.id} className={`border rounded-xl p-3.5 transition-all ${q.status === "done" ? "border-emerald-500/30 bg-emerald-950/10" : q.status === "error" ? "border-rose-500/30 bg-rose-950/10" : q.status === "processing" ? "border-amber-500/40 bg-amber-950/10" : "border-slate-850 bg-[#10111a]/50"}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-mono text-slate-500">#{qi + 1}</span>
+                              <h5 className="text-sm font-bold text-white truncate">{q.productName}</h5>
+                              {q.status === "pending" && <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">MENUNGGU</span>}
+                              {q.status === "processing" && <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300 flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" /> DIPROSES</span>}
+                              {q.status === "done" && <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 flex items-center gap-1"><Check className="w-2.5 h-2.5" /> SIAP</span>}
+                              {q.status === "error" && <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/30 text-rose-300">GAGAL</span>}
+                              {q.photoUrl && <span className="text-[9px] text-slate-500" title="pakai foto referensi">📷</span>}
+                            </div>
+                            {q.keyFeatures && <p className="text-[11px] text-slate-500 mt-0.5 truncate">{q.keyFeatures}</p>}
+                            {q.status === "done" && q.result && <p className="text-[11px] text-slate-400 mt-1 italic line-clamp-2">🎙 "{q.result.vo}"</p>}
+                            {q.status === "error" && <p className="text-[11px] text-rose-400/80 mt-1">{q.error}</p>}
+                          </div>
+                          {q.status !== "processing" && (
+                            <button onClick={() => removeQueueItem(q.id)} className="p-1 text-slate-500 hover:text-rose-400 transition-all shrink-0" title="hapus dari antrean"><Trash2 className="w-3.5 h-3.5" /></button>
+                          )}
+                        </div>
+                        {q.status === "done" && q.result && (
+                          <div className="flex flex-wrap gap-2 mt-2.5 pt-2.5 border-t border-slate-850">
+                            <button onClick={() => { navigator.clipboard.writeText(q.result!.singlePrompt); showNotification("Prompt 1 Video disalin! Tempel ke Flow/Veo. 🎬", "success"); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/40 text-[11px] font-bold font-mono transition-all active:scale-95"><Copy className="w-3 h-3" /> Salin Prompt 1 Video</button>
+                            <button onClick={() => loadQueueItemToEditor(q)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-850 text-[11px] font-bold font-mono transition-all active:scale-95"><ExternalLink className="w-3 h-3" /> Muat ke editor</button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>

@@ -687,10 +687,14 @@ export default function App() {
           `• ${s.timestamp} — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`,
       )
       .join("\n");
+    const productClause = imageUrl
+      ? `PRODUCT LOCK (very important): the product in the video MUST exactly match the uploaded reference product photo — same packaging, label text, brand, colors and shape. Do NOT invent or substitute a different product. Keep the product identical and clearly visible throughout the whole video.`
+      : `Keep the product (${productName || "the product"}) consistent and clearly visible throughout the whole video.`;
     return `Create ONE single continuous 10-second vertical 9:16 photorealistic affiliate video of ${creator} promoting ${productName || "the product"}.
+${productClause}
 IMPORTANT: output must be ONE seamless video from start to finish — do NOT generate separate clips, do NOT generate an image per scene. It is a single continuous take that smoothly transitions through three beats:
 ${beats}
-Keep the SAME character identity, lighting mood and visual style across the whole video (no face/style change between beats). Overall aesthetic: ${blueprint.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous 10-second video, 9:16 vertical, photorealistic 8k, smooth camera motion.`;
+Keep the SAME character identity, lighting mood and visual style across the whole video (no face/style change between beats). Overall aesthetic: ${blueprint.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous 10-second video, 9:16 vertical, photorealistic 8k, smooth camera motion. When uploading, attach the product reference photo so the product stays accurate.`;
   };
 
   const copySingleVideoPrompt = () => {
@@ -1066,7 +1070,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
           voiceOverText: draftVoiceOver,
           creativeAccent: creativeAccent,
           mainTextStyle: mainTextStyle,
-          imageUrl: imageUrl,
+          hasImage: !!imageUrl,
           voiceGender: voiceGender,
         }),
       });

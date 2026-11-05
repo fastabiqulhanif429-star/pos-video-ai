@@ -219,7 +219,10 @@ app.post("/api/generate-narrative", async (req, res) => {
 // Endpoint 3: Generate Video Blueprint (JSON Structure for Veo, Flow & Video AI Generator)
 app.post("/api/generate-blueprint", async (req, res) => {
   try {
-    const { productName, keyFeatures, targetAudience, voiceOverText, creativeAccent, mainTextStyle, imageUrl, voiceGender } = req.body;
+    const { productName, keyFeatures, targetAudience, voiceOverText, creativeAccent, mainTextStyle, imageUrl, hasImage: hasImageFlag, voiceGender } = req.body;
+    // Foto produk TIDAK dikirim ke model (Gemini cuma bikin teks). Kita cuma perlu TAHU ada foto
+    // supaya instruksi ke Flow/Veo memaksa produk sesuai foto referensi. Jangan pernah inline base64 ke prompt.
+    const hasImage = !!hasImageFlag || (typeof imageUrl === "string" && imageUrl.length > 0);
     const isMale = voiceGender === "male";
     const creatorDesc = isMale 
       ? "A consistent 24-year-old stylish Indonesian male creator with short neat dark hair, expressive eyes, confident warm smile, wearing a modern stylish shirt" 
@@ -235,12 +238,15 @@ app.post("/api/generate-blueprint", async (req, res) => {
       - Karakter Suara / Kreator: ${isMale ? "Pria / Laki-laki (Male)" : "Wanita / Perempuan (Female)"}
       - Aksen Visual: ${creativeAccent ? "Aktif (Aksen Sketsa Kreatif/coretan)" : "Nonaktif"}
       - Gaya Teks: ${mainTextStyle || "Sketch"}
-      ${imageUrl ? `- Referensi Gambar: "${imageUrl}" (Instruksikan 'closely matching the character facial features and product from the provided reference image' di visualPrompt)` : `- Referensi Gambar: Tidak ditentukan`}
-      
+      - Foto Referensi Produk: ${hasImage ? "ADA — pengguna akan mengupload foto PRODUK ASLI ke Flow/Veo. Produk di video wajib meniru foto ini." : "Tidak ada foto referensi."}
+
       Aturan Penting Skenario (VEO / FLOW):
-      1. Konsistensi Wajah & Karakter: Tentukan deskripsi fisik model/creator secara detail dan konsisten (e.g. "${creatorDesc}") dan tambahkan klausa "matching the facial identity from the uploaded source image" di visualPrompt.
-      2. Demo Produk: Scene 2 wajib berupa close-up macro detail interaksi tangan dengan produk.
-      3. visualPrompt ditulis dalam BAHASA INGGRIS yang sangat sinematik (studio lighting, shallow depth of field, photorealistic 8k).
+      1. ${hasImage
+          ? `KONSISTENSI PRODUK (PALING PENTING): Pengguna upload foto produk asli. Di SETIAP visualPrompt WAJIB sisipkan klausa: "the product shown must EXACTLY match the uploaded reference product photo — same packaging, label text, brand, colors and shape; do not invent or substitute a different product". Produk harus terlihat jelas, tajam, dan jadi fokus utama tiap scene.`
+          : `KONSISTENSI PRODUK (PALING PENTING): Jaga produk tetap konsisten (bentuk, warna, kemasan, label) di semua scene sesuai nama & fitur: ${productName || "produk"}.`}
+      2. Konsistensi Kreator: Gunakan kreator yang SAMA di semua scene (e.g. "${creatorDesc}"); tambahkan "keep the same creator's face, hair and outfit consistent across all scenes".
+      3. Demo Produk: Scene 2 wajib close-up macro interaksi tangan dengan produk, perlihatkan detail kemasan/label produk.
+      4. visualPrompt ditulis dalam BAHASA INGGRIS yang sangat sinematik (studio lighting, shallow depth of field, photorealistic 8k).
       
       Susunlah 3 scene utama (Scene 1: HOOK (0s-2s), Scene 2: DETAIL VALUE (2s-8s), Scene 3: CTA (8s-10s)) ke dalam JSON dengan properti:
       - visualAesthetic: Penjelasan gaya visual keseluruhan.
@@ -250,7 +256,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
          * title (string)
          * timestamp (string, e.g., "0.0s - 2.0s", "2.0s - 8.0s", "8.0s - 10.0s")
          * textOverlay (string, teks singkat bombastis Indonesia)
-         * visualPrompt (string, deskripsi visual detail Bahasa Inggris dengan anchor wajah model yang konsisten)
+         * visualPrompt (string, deskripsi visual detail Bahasa Inggris; WAJIB menyebut produk sesuai foto referensi + kreator konsisten)
          * audioCue (string, e.g. "Swoosh FX")
          * voiceOverSegment (string, potongan voiceOverText sesuai durasi scene)
          * interactiveAction (string, peletakan UI keranjang kuning dll)
@@ -322,6 +328,10 @@ app.post("/api/generate-blueprint", async (req, res) => {
     const vo3 = voWords.slice(Math.max(6, third * 2)).join(" ") || (isMale ? "Buruan checkout sekarang juga bro!" : "Buruan checkout sekarang juga ya!");
 
     const accentDesc = req.body.creativeAccent ? "with subtle creative sketch/scribble accents and dynamic hand-drawn styling" : "with standard clean fashion style";
+    const hasImageFb = !!req.body.hasImage || (typeof req.body.imageUrl === "string" && req.body.imageUrl.length > 0);
+    const productMatch = hasImageFb
+      ? ` The product MUST exactly match the uploaded reference product photo (same packaging, label text, brand, colors and shape) — do not substitute a different product.`
+      : ``;
 
     const fallbackData = {
       visualAesthetic: `Sinematik, modern, dan penuh energi. Menggunakan pencahayaan studio yang hangat (warm light) dengan kedalaman ruang (depth of field) yang tinggi. Transisi dinamis antar scene untuk mempertahankan ketertarikan penonton, disesuaikan dengan produk: ${productName}.`,
@@ -332,7 +342,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
           title: "SCENE 1: HOOK (0s - 2s)",
           timestamp: "0.0s - 2.0s",
           textOverlay: isMale ? `RACUN BARU: ${productName.toUpperCase()}! 🔥` : `RACUN TIKTOK: ${productName.toUpperCase()}! 🔥`,
-          visualPrompt: `A close-up cinematic portrait of ${modelDesc}, holding up ${productName} directly to the camera. Warm cozy studio background with aesthetic bokeh, soft volumetric lighting, high photorealistic 8k, ${accentDesc}.`,
+          visualPrompt: `A close-up cinematic portrait of ${modelDesc}, holding up ${productName} directly to the camera. Warm cozy studio background with aesthetic bokeh, soft volumetric lighting, high photorealistic 8k, ${accentDesc}.${productMatch}`,
           audioCue: "Fast Swoosh FX + Pop Beat",
           voiceOverSegment: vo1,
           interactiveAction: "Elemen penunjuk melingkar pada produk",
@@ -343,7 +353,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
           title: "SCENE 2: DETAIL VALUE (2s - 8s)",
           timestamp: "2.0s - 8.0s",
           textOverlay: isMale ? `GOKIL INI KEREN BANGET! 🤩` : `SERIUS INI CAKEP PARAH! 🤩`,
-          visualPrompt: `A close-up macro shot of the model's hand interacting with ${productName}, showing off its premium fabric texture, details, and fine ${keyFeatures}. High shallow depth of field, aesthetic clean studio lighting, smooth movement, photorealistic 8k.`,
+          visualPrompt: `A close-up macro shot of the model's hand interacting with ${productName}, showing off its premium fabric texture, details, and fine ${keyFeatures}. High shallow depth of field, aesthetic clean studio lighting, smooth movement, photorealistic 8k.${productMatch}`,
           audioCue: "Subtle Bass Drop + Upbeat Music",
           voiceOverSegment: vo2,
           interactiveAction: "Animasi zoom lambat pada detail kain/material",
@@ -354,7 +364,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
           title: "SCENE 3: CTA & CHECKOUT (8s - 10s)",
           timestamp: "8.0s - 10.0s",
           textOverlay: `KLIK KERANJANG KUNING DI BAWAH! 👇`,
-          visualPrompt: `A medium shot of the same consistent ${isMale ? "Indonesian male creator" : "Indonesian female influencer"} smiling happily, holding ${productName}, pointing downwards towards the shopping bag area. Warm cinematic studio look, friendly inviting atmosphere, extremely clear detail, photorealistic 8k.`,
+          visualPrompt: `A medium shot of the same consistent ${isMale ? "Indonesian male creator" : "Indonesian female influencer"} smiling happily, holding ${productName}, pointing downwards towards the shopping bag area. Warm cinematic studio look, friendly inviting atmosphere, extremely clear detail, photorealistic 8k.${productMatch}`,
           audioCue: "Ding Bell FX + Upbeat Outro",
           voiceOverSegment: vo3,
           interactiveAction: "Panah berkedip mengarah ke kiri bawah / keranjang kuning",

@@ -284,6 +284,28 @@ export default function App() {
     return s > 0 ? s : 2000000;
   });
   const [strategyNiche, setStrategyNiche] = useState<string>(() => safeStorage.getItem("affos_strategy_niche") || "");
+  const [strategyAccounts, setStrategyAccounts] = useState<number>(() => {
+    const a = parseInt(safeStorage.getItem("affos_strategy_accounts") || "", 10);
+    return a > 0 ? a : 1;
+  });
+
+  // Tab utama: Robot video (editor) / Strategi AI / Riset Produk / Evaluasi Shopee / Evaluasi FB
+  const [activeMainTab, setActiveMainTab] = useState<"robot" | "strategi" | "riset" | "evalShopee" | "evalFB">(() => {
+    const t = safeStorage.getItem("affos_active_tab");
+    return (["strategi", "riset", "evalShopee", "evalFB"].includes(t || "") ? t : "robot") as any;
+  });
+  const switchTab = (t: "robot" | "strategi" | "riset" | "evalShopee" | "evalFB") => {
+    setActiveMainTab(t as any);
+    try { safeStorage.setItem("affos_active_tab", t); } catch (e) {}
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // ===== EVALUASI (Shopee & FB) — tracker manual + diagnosa otomatis =====
+  type EvalEntry = { id: string; title: string; views: number; clicks: number; orders: number; komisi: number; note: string; date: string };
+  const [evalData, setEvalData] = useState<{ shopee: EvalEntry[]; fb: EvalEntry[] }>(() => {
+    try { const s = safeStorage.getItem("affos_eval"); return s ? JSON.parse(s) : { shopee: [], fb: [] }; } catch (e) { return { shopee: [], fb: [] }; }
+  });
+  const [evalForm, setEvalForm] = useState({ title: "", views: "", clicks: "", orders: "", komisi: "" });
   const [strategyData, setStrategyData] = useState<{
     phases: any[];
     tips: string;
@@ -1031,7 +1053,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
     setCurrentTemplateId("custom");
     const angleCtx = product.contentAngle ? `Angle konten: ${product.contentAngle}` : "";
     setUserPromptContext(angleCtx);
-    setIsResearchModalOpen(false);
+    switchTab("robot");
     showNotification(`"${product.productName}" dimuat ke editor. Menyusun naskah otomatis...`, "success");
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
     await generateVoiceOverAI(product.productName, product.keyFeatures, product.targetAudience, angleCtx);
@@ -1097,8 +1119,8 @@ Keep the SAME character identity, lighting mood and visual style across the whol
     setCurrentTemplateId("custom");
     setUserPromptContext(angle ? `Angle konten: ${angle}` : "");
     if (photoDataUrl) setImageUrl(photoDataUrl);
-    // reset state verifikasi + tutup modal
-    setIsResearchModalOpen(false);
+    // reset state verifikasi + balik ke tab Robot video
+    switchTab("robot");
     setVerifyingProduct(null);
     setBrandResults([]);
     setSelectedBrandIdx(null);
@@ -1170,7 +1192,8 @@ Keep the SAME character identity, lighting mood and visual style across the whol
         body: JSON.stringify({
           targetRp: strategyTargetRp,
           niche: strategyNiche,
-          platform: "TikTok Affiliate (Shop) + Shopee Video/Affiliate",
+          accounts: strategyAccounts,
+          platform: "Shopee Video + Facebook Reels (utama), TikTok & YouTube Shorts (link di bio)",
           insights,
         }),
       });
@@ -1190,6 +1213,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
         setStrategyIsFallback(!!result.isFallback);
         try { safeStorage.setItem("affos_strategy_target", String(strategyTargetRp)); } catch (e) {}
         try { safeStorage.setItem("affos_strategy_niche", strategyNiche); } catch (e) {}
+        try { safeStorage.setItem("affos_strategy_accounts", String(strategyAccounts)); } catch (e) {}
         showNotification(
           result.isFallback ? "Strategi siap (profil cepat)! 🚀" : "Strategi 4 fase berhasil disusun! 🚀",
           "success"
@@ -1387,6 +1411,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
     setBlueprint({ scenes: item.result.scenes, visualAesthetic: item.result.visualAesthetic } as any);
     if (item.result.scenes[0]?.sceneId) setSelectedSceneId(item.result.scenes[0].sceneId);
     setIsQueueModalOpen(false);
+    switchTab("robot");
     showNotification(`"${item.productName}" dimuat ke editor.`, "success");
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
     if (item.photoUrl) {
@@ -1395,6 +1420,192 @@ Keep the SAME character identity, lighting mood and visual style across the whol
         setImageUrl(dataUrl);
       } catch (e) { /* foto opsional, abaikan kalau gagal */ }
     }
+  };
+
+  // ===== EVALUASI handlers =====
+  const persistEval = (next: { shopee: EvalEntry[]; fb: EvalEntry[] }) => {
+    setEvalData(next);
+    try { safeStorage.setItem("affos_eval", JSON.stringify(next)); } catch (e) {}
+  };
+  const addEvalEntry = (platform: "shopee" | "fb") => {
+    if (!evalForm.title.trim()) { showNotification("Isi dulu judul/hook videonya ya.", "info"); return; }
+    const entry: EvalEntry = {
+      id: `e_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      title: evalForm.title.trim(),
+      views: parseInt(evalForm.views, 10) || 0,
+      clicks: parseInt(evalForm.clicks, 10) || 0,
+      orders: parseInt(evalForm.orders, 10) || 0,
+      komisi: parseInt(evalForm.komisi, 10) || 0,
+      note: "",
+      date: new Date().toISOString(),
+    };
+    persistEval({ ...evalData, [platform]: [entry, ...evalData[platform]] });
+    setEvalForm({ title: "", views: "", clicks: "", orders: "", komisi: "" });
+    showNotification("Data video dicatat + didiagnosa. 📊", "success");
+  };
+  const removeEvalEntry = (platform: "shopee" | "fb", id: string) =>
+    persistEval({ ...evalData, [platform]: evalData[platform].filter((e) => e.id !== id) });
+
+  // Diagnosa pakai matriks evaluasi (views/CTR/konversi)
+  const diagnoseEval = (e: EvalEntry): { verdict: string; color: string; diag: string; fix: string } => {
+    if (e.views > 0 && e.views < 200) {
+      return { verdict: "DISTRIBUSI/HOOK", color: "amber", diag: "Views kecil — algoritma belum nyebar / hook 3 detik awal kurang nendang.", fix: "Uji variasi teks headline atas & visual frame pertama di tab Robot video." };
+    }
+    if (e.views >= 1000 && e.clicks === 0) {
+      return { verdict: "CTA LEMAH", color: "orange", diag: "Betah ditonton tapi gak ada yang klik — penonton gak tergerak beli.", fix: "Pertajam CTA (teks/VO) di detik akhir video — sebut manfaat + 'cek keranjang kuning'." };
+    }
+    if (e.clicks > 20 && e.orders === 0) {
+      return { verdict: "PRODUK/HARGA", color: "rose", diag: "Banyak yang klik tapi gak checkout — produk gak sesuai ekspektasi.", fix: "Cek di Shopee: harga kemahalan? rating toko jelek? Ganti ke merek/harga lebih oke." };
+    }
+    if (e.views >= 200 && e.clicks > 0 && e.orders > 0) {
+      return { verdict: "WINNER 🏆", color: "emerald", diag: "Formula lengkap: ditonton + diklik + ada pesanan masuk.", fix: "DUPLIKASI gaya video ini ke produk sejenis (pakai Antrean batch)." };
+    }
+    return { verdict: "SAMPEL KECIL", color: "slate", diag: "Data masih kecil buat divonis — kumpulin dulu beberapa hari.", fix: "Lanjut posting konsisten, isi lagi datanya setelah 3-7 hari." };
+  };
+  const evalWeeklyTotals = (platform: "shopee" | "fb") => {
+    const list = evalData[platform] || [];
+    return {
+      count: list.length,
+      views: list.reduce((t, e) => t + e.views, 0),
+      clicks: list.reduce((t, e) => t + e.clicks, 0),
+      orders: list.reduce((t, e) => t + e.orders, 0),
+      komisi: list.reduce((t, e) => t + e.komisi, 0),
+    };
+  };
+
+  const COLOR_MAP: Record<string, string> = {
+    amber: "text-amber-300 bg-amber-950/30 border-amber-500/30",
+    orange: "text-orange-300 bg-orange-950/30 border-orange-500/30",
+    rose: "text-rose-300 bg-rose-950/30 border-rose-500/30",
+    emerald: "text-emerald-300 bg-emerald-950/30 border-emerald-500/30",
+    slate: "text-slate-300 bg-slate-900/50 border-slate-700/40",
+  };
+
+  const renderEvalPanel = (platform: "shopee" | "fb") => {
+    const isShopee = platform === "shopee";
+    const cfg = isShopee
+      ? { name: "Evaluasi Shopee", desc: "Shopee Video + Shopee Affiliate — data tonton, klik & konversi", accent: "from-orange-500 to-amber-600", ring: "focus:border-orange-500/60", Icon: ShoppingBag }
+      : { name: "Evaluasi FB Reels", desc: "Facebook Pro Dashboard — jangkauan + klik link (via Lynk.id/Bitly)", accent: "from-blue-500 to-indigo-600", ring: "focus:border-blue-500/60", Icon: Globe };
+    const list = evalData[platform] || [];
+    const tot = evalWeeklyTotals(platform);
+    const ctr = tot.views ? ((tot.clicks / tot.views) * 100).toFixed(1) : "0";
+    const conv = tot.clicks ? ((tot.orders / tot.clicks) * 100).toFixed(1) : "0";
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
+        className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl overflow-hidden shadow-2xl relative"
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-slate-800/60 flex items-center gap-2.5 bg-[#10111a]">
+          <div className={`p-2 bg-gradient-to-br ${cfg.accent} rounded-lg text-white shadow-lg`}>
+            <cfg.Icon className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-100">{cfg.name}</h3>
+            <p className="text-[10px] text-slate-400">{cfg.desc}</p>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {/* Cara ambil data */}
+          <div className="text-[11px] text-slate-400 leading-relaxed bg-[#10111a]/60 border border-slate-850 rounded-lg px-3.5 py-3 space-y-1">
+            <p className="font-bold text-slate-300 flex items-center gap-1.5"><Info className="w-3.5 h-3.5 text-slate-500" /> Cara tarik datanya (gratis, dari HP):</p>
+            {isShopee ? (
+              <ul className="list-disc ml-4 space-y-0.5 text-slate-500">
+                <li><b className="text-slate-400">Views/tonton:</b> Shopee → Shopee Video → Profil Saya → Pusat Kreator → Wawasan Video.</li>
+                <li><b className="text-slate-400">Klik & Pesanan:</b> Shopee → Saya → Shopee Affiliate Program → tab Laporan/Performa (Klik, Pesanan, Konversi).</li>
+              </ul>
+            ) : (
+              <ul className="list-disc ml-4 space-y-0.5 text-slate-500">
+                <li><b className="text-slate-400">Views/retensi:</b> FB → Professional Dashboard → Insights → Content → pilih Reels (cek drop 3 detik awal).</li>
+                <li><b className="text-slate-400">Klik link:</b> FB gak kasih CTR organik — pakai Bitly/TinyURL atau analitik Lynk.id/Koleksiku buat lihat klik dari FB.</li>
+              </ul>
+            )}
+          </div>
+
+          {/* Form tambah data */}
+          <div className="bg-[#10111a]/60 border border-slate-850 rounded-xl p-4 space-y-3">
+            <h4 className="text-[11px] font-mono font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> Catat data video (abis posting)</h4>
+            <input type="text" value={evalForm.title} onChange={(e) => setEvalForm({ ...evalForm, title: e.target.value })} placeholder="Judul / hook video" className={`w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none ${cfg.ring}`} />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div>
+                <label className="text-[10px] font-mono text-slate-500 block mb-1">Views</label>
+                <input type="number" value={evalForm.views} onChange={(e) => setEvalForm({ ...evalForm, views: e.target.value })} placeholder="0" className={`w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none ${cfg.ring}`} />
+              </div>
+              <div>
+                <label className="text-[10px] font-mono text-slate-500 block mb-1">Klik{isShopee ? " keranjang" : " link"}</label>
+                <input type="number" value={evalForm.clicks} onChange={(e) => setEvalForm({ ...evalForm, clicks: e.target.value })} placeholder="0" className={`w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none ${cfg.ring}`} />
+              </div>
+              <div>
+                <label className="text-[10px] font-mono text-slate-500 block mb-1">Pesanan</label>
+                <input type="number" value={evalForm.orders} onChange={(e) => setEvalForm({ ...evalForm, orders: e.target.value })} placeholder="0" className={`w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none ${cfg.ring}`} />
+              </div>
+              <div>
+                <label className="text-[10px] font-mono text-slate-500 block mb-1">Komisi (Rp)</label>
+                <input type="number" value={evalForm.komisi} onChange={(e) => setEvalForm({ ...evalForm, komisi: e.target.value })} placeholder="0" className={`w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none ${cfg.ring}`} />
+              </div>
+            </div>
+            <button onClick={() => addEvalEntry(platform)} className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r ${cfg.accent} text-white text-sm font-bold font-mono shadow-lg transition-all active:scale-[0.98]`}>
+              <Plus className="w-4 h-4" /> Catat + diagnosa
+            </button>
+          </div>
+
+          {/* Ringkasan mingguan */}
+          {list.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              {[
+                { label: "Video", val: tot.count },
+                { label: "Total Views", val: tot.views.toLocaleString("id-ID") },
+                { label: `CTR ${ctr}%`, val: tot.clicks.toLocaleString("id-ID") + " klik" },
+                { label: `Konversi ${conv}%`, val: tot.orders + " order" },
+                { label: "Komisi", val: "Rp " + tot.komisi.toLocaleString("id-ID") },
+              ].map((s, i) => (
+                <div key={i} className="bg-[#10111a]/60 border border-slate-850 rounded-lg px-3 py-2 text-center">
+                  <p className="text-sm font-bold text-white font-mono">{s.val}</p>
+                  <p className="text-[9px] text-slate-500 uppercase tracking-wider mt-0.5">{s.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Empty */}
+          {list.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <cfg.Icon className="w-10 h-10 text-slate-700 mb-3" />
+              <p className="text-sm text-slate-400 font-semibold">Belum ada data</p>
+              <p className="text-[11px] text-slate-600 mt-1 max-w-sm">Catat Views + Klik + Pesanan tiap video abis posting. Robot bakal langsung kasih diagnosa + saran perbaikan.</p>
+            </div>
+          )}
+
+          {/* Daftar + diagnosa */}
+          {list.map((e) => {
+            const d = diagnoseEval(e);
+            const ctrE = e.views ? ((e.clicks / e.views) * 100).toFixed(1) : "0";
+            return (
+              <div key={e.id} className="border border-slate-850 rounded-xl p-3.5 bg-[#10111a]/50">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <h5 className="text-sm font-bold text-white truncate">{e.title}</h5>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-slate-400 font-mono">
+                      <span>👁 {e.views.toLocaleString("id-ID")}</span>
+                      <span>🖱 {e.clicks} klik (CTR {ctrE}%)</span>
+                      <span>🛒 {e.orders} order</span>
+                      {e.komisi > 0 && <span className="text-emerald-400">Rp {e.komisi.toLocaleString("id-ID")}</span>}
+                    </div>
+                  </div>
+                  <button onClick={() => removeEvalEntry(platform, e.id)} className="p-1 text-slate-500 hover:text-rose-400 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+                <div className={`mt-2.5 rounded-lg border px-3 py-2 ${COLOR_MAP[d.color]}`}>
+                  <p className="text-[11px] font-bold font-mono">{d.verdict}</p>
+                  <p className="text-[11px] mt-0.5 opacity-90">{d.diag}</p>
+                  <p className="text-[11px] mt-1"><b>✅ Perbaikan:</b> {d.fix}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </motion.div>
+    );
   };
 
   // AI Service 3: Generate Video Blueprint JSON
@@ -1736,17 +1947,6 @@ Keep the SAME character identity, lighting mood and visual style across the whol
               )}
 
               <button
-                onClick={() => setIsStrategyModalOpen(true)}
-                className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 font-semibold transition-all bg-gradient-to-r from-violet-950/50 to-fuchsia-950/40 border-violet-500/40 text-violet-300 hover:from-violet-900/50 hover:to-fuchsia-900/40 shadow-sm shadow-violet-500/10 active:scale-95"
-                title="Strategi AI: rencana cuan affiliate per fase"
-                id="btn-strategi-ai"
-              >
-                <Rocket className="w-3.5 h-3.5 text-violet-400" />
-                <span className="font-mono">Strategi AI</span>
-                <span className="text-[9px] bg-violet-500 text-slate-950 px-1 rounded font-mono font-bold">AI</span>
-              </button>
-
-              <button
                 onClick={() => setIsQueueModalOpen(true)}
                 className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 font-semibold transition-all bg-gradient-to-r from-amber-950/50 to-orange-950/40 border-amber-500/40 text-amber-300 hover:from-amber-900/50 hover:to-orange-900/40 shadow-sm shadow-amber-500/10 active:scale-95"
                 title="Antrean: bikin stok banyak prompt video sekaligus"
@@ -1757,17 +1957,6 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                 {queueItems.filter((q) => q.status === "done").length > 0 && (
                   <span className="text-[9px] bg-emerald-500 text-slate-950 px-1 rounded font-mono font-bold">{queueItems.filter((q) => q.status === "done").length}</span>
                 )}
-              </button>
-
-              <button
-                onClick={() => setIsResearchModalOpen(true)}
-                className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 font-semibold transition-all bg-gradient-to-r from-cyan-950/50 to-emerald-950/40 border-cyan-500/40 text-cyan-300 hover:from-cyan-900/50 hover:to-emerald-900/40 shadow-sm shadow-cyan-500/10 active:scale-95"
-                title="Riset Produk Affiliate dengan AI"
-                id="btn-riset-produk"
-              >
-                <Target className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="font-mono">Riset Produk</span>
-                <span className="text-[9px] bg-cyan-500 text-slate-950 px-1 rounded font-mono font-bold">AI</span>
               </button>
 
               <button
@@ -1857,6 +2046,43 @@ Keep the SAME character identity, lighting mood and visual style across the whol
         </div>
       </header>
 
+      {/* TAB NAV UTAMA */}
+      <div className="max-w-[1500px] mx-auto mb-6" id="main-tabs">
+        <div className="bg-[#10111a]/95 border border-slate-800/80 rounded-2xl p-1.5 flex items-center gap-1.5 shadow-xl overflow-x-auto scrollbar-thin">
+          {[
+            { id: "robot" as const, label: "Robot video", icon: Video, active: "from-pink-600 to-violet-600 shadow-pink-500/20", dot: "bg-pink-400" },
+            { id: "strategi" as const, label: "Strategi AI", icon: Rocket, active: "from-violet-600 to-fuchsia-600 shadow-violet-500/20", dot: "bg-violet-400" },
+            { id: "riset" as const, label: "Riset Produk", icon: Target, active: "from-cyan-600 to-emerald-600 shadow-cyan-500/20", dot: "bg-cyan-400" },
+            { id: "evalShopee" as const, label: "Evaluasi Shopee", icon: ShoppingBag, active: "from-orange-600 to-amber-600 shadow-orange-500/20", dot: "bg-orange-400" },
+            { id: "evalFB" as const, label: "Evaluasi FB", icon: Globe, active: "from-blue-600 to-indigo-600 shadow-blue-500/20", dot: "bg-blue-400" },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeMainTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => switchTab(tab.id)}
+                id={`tab-${tab.id}`}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold font-mono whitespace-nowrap transition-all active:scale-95 ${
+                  isActive
+                    ? `bg-gradient-to-r ${tab.active} text-white shadow-lg`
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60"
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {tab.label}
+                {tab.id === "robot" && <span className="text-[8px] bg-white/20 px-1 py-0.5 rounded">UTAMA</span>}
+                {(tab.id === "strategi" || tab.id === "riset") && <span className="text-[8px] bg-white/20 px-1 py-0.5 rounded">AI</span>}
+                {(tab.id === "evalShopee" || tab.id === "evalFB") && evalData[tab.id === "evalShopee" ? "shopee" : "fb"].length > 0 && (
+                  <span className="text-[8px] bg-white/20 px-1 py-0.5 rounded">{evalData[tab.id === "evalShopee" ? "shopee" : "fb"].length}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {activeMainTab === "robot" && (<>
       {/* BAR PANDUAN VIDEO TUTORIAL */}
       <div className="max-w-[1500px] mx-auto mb-6" id="bar-panduan-video">
         <div className="bg-gradient-to-r from-red-950/40 via-[#10111a] to-amber-950/30 border border-red-500/25 rounded-2xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-4 shadow-xl">
@@ -3026,6 +3252,7 @@ Keep the SAME character identity, lighting mood and visual style across the whol
         </div>
 
       </footer>
+      </>)}
 
       {/* AI Voice Over Generator Modal */}
       <AnimatePresence>
@@ -4203,15 +4430,15 @@ Keep the SAME character identity, lighting mood and visual style across the whol
         )}
       </AnimatePresence>
 
-      {/* MODAL: STRATEGI AI AFFILIATE */}
+      {/* ===== TAB: STRATEGI AI AFFILIATE ===== */}
       <AnimatePresence>
-        {isStrategyModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="strategy-modal">
+        {activeMainTab === "strategi" && (
+          <div className="max-w-[1500px] mx-auto" id="strategi-tab">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl overflow-hidden shadow-2xl relative"
             >
               {/* Header */}
               <div className="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
@@ -4228,16 +4455,10 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setIsStrategyModalOpen(false)}
-                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all"
-                >
-                  <X className="w-4 h-4" />
-                </button>
               </div>
 
               {/* Body */}
-              <div className="p-6 overflow-y-auto flex-1 scrollbar-thin space-y-5">
+              <div className="p-6 space-y-5">
                 {/* Setup target + niche */}
                 <div className="bg-[#10111a]/60 border border-slate-850 rounded-xl p-4 space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -4261,6 +4482,21 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                         placeholder="cth: skincare, gadget murah, perlengkapan dapur"
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-mono font-semibold text-slate-400 block mb-1">Akun yang sudah terhubung (siap pasang link)</label>
+                    <div className="flex items-center gap-2">
+                      {[1, 2, 3].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => setStrategyAccounts(n)}
+                          className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold font-mono border transition-all active:scale-95 ${strategyAccounts === n ? "bg-violet-600 border-violet-400 text-white" : "bg-[#0b0c15] border-slate-800 text-slate-400 hover:text-slate-200"}`}
+                        >
+                          {n} akun
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-slate-600 mt-1">Baru 1 akun kehubung? Strateginya bakal fokus 1 akun utama dulu + warm-up akun lain (biar gak kewalahan).</p>
                   </div>
                   <button
                     onClick={() => generateStrategy()}
@@ -4427,15 +4663,15 @@ Keep the SAME character identity, lighting mood and visual style across the whol
         )}
       </AnimatePresence>
 
-      {/* MODAL: RISET PRODUK AFFILIATE AI */}
+      {/* ===== TAB: RISET PRODUK AFFILIATE AI ===== */}
       <AnimatePresence>
-        {isResearchModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="research-modal">
+        {activeMainTab === "riset" && (
+          <div className="max-w-[1500px] mx-auto" id="riset-tab">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl relative flex flex-col max-h-[88vh]"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl overflow-hidden shadow-2xl relative"
             >
               {/* Header */}
               <div className="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
@@ -4452,16 +4688,10 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setIsResearchModalOpen(false)}
-                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all"
-                >
-                  <X className="w-4 h-4" />
-                </button>
               </div>
 
               {/* Body */}
-              <div className="p-6 overflow-y-auto flex-1 scrollbar-thin space-y-5">
+              <div className="p-6 space-y-5">
                 {verifyingProduct ? (
                   /* ===== VIEW VERIFIKASI MEREK ===== */
                   <div className="space-y-4">
@@ -4708,6 +4938,24 @@ Keep the SAME character identity, lighting mood and visual style across the whol
                 )}
               </div>
             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ===== TAB: EVALUASI SHOPEE ===== */}
+      <AnimatePresence>
+        {activeMainTab === "evalShopee" && (
+          <div className="max-w-[1500px] mx-auto" id="eval-shopee-tab">
+            {renderEvalPanel("shopee")}
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ===== TAB: EVALUASI FB ===== */}
+      <AnimatePresence>
+        {activeMainTab === "evalFB" && (
+          <div className="max-w-[1500px] mx-auto" id="eval-fb-tab">
+            {renderEvalPanel("fb")}
           </div>
         )}
       </AnimatePresence>

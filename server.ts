@@ -621,35 +621,36 @@ app.post("/api/verify-brands", async (req, res) => {
 // Pola: insight → produksi → posting → evaluasi → ulang (ala "Strategi AI" clipper, versi affiliate).
 app.post("/api/generate-strategy", async (req, res) => {
   try {
-    const { targetRp, platform, niche, insights } = req.body;
+    const { targetRp, platform, niche, insights, accounts } = req.body;
     const target = Number(targetRp) > 0 ? Number(targetRp) : 2000000;
+    const connectedAccounts = Number(accounts) > 0 ? Math.min(Number(accounts), 10) : 1;
     const insightList = Array.isArray(insights)
       ? insights.map((x: any) => String(x).trim()).filter(Boolean).slice(0, 15)
       : [];
-    const plat = platform || "TikTok Affiliate (Shop) + Shopee Video/Affiliate";
+    const plat = platform || "Shopee Video + Facebook Reels (utama), TikTok & YouTube Shorts (link di bio)";
     const nicheTxt = niche || "produk affiliate viral (skincare, household, gadget murah)";
 
     const prompt = `
       Kamu AHLI STRATEGI konten affiliate short-form Indonesia. Bikinkan rencana EKSEKUSI realistis & actionable
-      (bahasa Indonesia santai, gaya mentor yang jujur) untuk seorang PEMULA SOLO yang mau cuan dari AFFILIATE lewat video pendek AI.
+      (bahasa Indonesia santai, gaya mentor yang jujur) untuk seorang PEMULA SOLO yang mau cuan dari AFFILIATE lewat video pendek AI,
+      yang kerja dengan MULTI-AKUN tapi bertahap.
 
       KONTEKS & REALITA (WAJIB dipakai):
       - Model cuan: KOMISI affiliate (per penjualan/checkout), BUKAN adsense views. Target: Rp ${target.toLocaleString("id-ID")}/bulan.
-      - Platform: ${plat}. Niche fokus: ${nicheTxt}.
-      - Tool yang dipunya: app "POS Video AI" ini sendiri — Riset Produk AI (cari ide produk + keyword Shopee), Verifikasi Merek (AI brand guide + paste foto produk), generator naskah Voice-Over + blueprint video 9:16, dan "Prompt 1 Video" buat Google Flow/Veo (1 prompt → 1 video utuh, produk ke-lock dari foto).
-      - Realita cold-start: video awal views kecil & konversi nol itu NORMAL. Bottleneck utama = KONSISTENSI + HOOK + relevansi produk ke audiens, bukan jumlah produksi.
-      - ATURAN KERAS (kebawa ke aksi tiap fase):
-        (1) Fokus 1 niche + 2-3 produk dulu, JANGAN loncat-loncat niche tiap hari (algoritma affiliate butuh sinyal audiens yang konsisten).
-        (2) WAJIB pasang link affiliate yang BENAR di tiap video (keranjang kuning TikTok / link Shopee affiliate). Video viral tanpa link = komisi nol.
-        (3) Daur ulang = REMIX TOTAL: ganti hook 3 detik, ganti angle, ganti VO — jangan re-upload video sama (hindari deteksi unoriginal).
-        (4) Evaluasi JANGAN cuma views. Metrik affiliate: CTR ke produk (klik keranjang) + KONVERSI (checkout/komisi). Video views tinggi tapi klik rendah = masalah CTA/soft-selling; klik tinggi konversi rendah = masalah harga/produk/trust.
-        (5) Jeda antar posting 3-4 jam, posting NATIVE dari HP (hindari watermark & shadow-ban). Scale ke lebih banyak akun/produk HANYA setelah 1 akun kebukti ada komisi masuk.
-        (6) Ritme: produksi batch KECIL (2-4 video) → posting → amati 3-7 hari → evaluasi CTR/konversi → perbaiki → ulang. Jangan pre-produksi 20 video sekaligus.
-      - Ramp realistis: Minggu 1 = Rp 0 (fase belajar hook & pasang link, target: 10-14 video + sistem jalan). Minggu 2 = komisi pertama kecil. Minggu 3 = gandakan pola produk/hook yang ada konversinya. Minggu 4 = panen + scale produk winner menuju target bulanan.
+      - Platform & cara pasang link: Shopee Video (sematkan KERANJANG KUNING langsung), Facebook Reels (tempel link Shopee/Koleksiku di KOMENTAR PERTAMA), TikTok & YouTube Shorts (cukup pasang 1 link Koleksiku di BIO). Niche fokus: ${nicheTxt}.
+      - KONDISI AKUN USER: baru ${connectedAccounts} akun yang benar-benar TERHUBUNG & siap pasang link affiliate${connectedAccounts === 1 ? " (1 pasang: Shopee + FB), 2 akun lain belum terhubung/masih baru" : ""}. Tool produksi: app "POS Video AI" + fitur ANTREAN (batch) buat bikin STOK prompt video sekaligus, generator Voice-Over + blueprint 9:16, "Prompt 1 Video" buat Google Flow/Veo, Riset Produk AI, Verifikasi Merek.
+      - ATURAN KERAS MULTI-AKUN (WAJIB jadi inti strategi, kebawa ke aksi tiap fase):
+        (1) Target posting 2-3 video/hari itu dipatok PER SATU AKUN. TAPI JANGAN langsung eksekusi di semua akun sekaligus kalau akun terhubung baru ${connectedAccounts}.
+        (2) Strategi "1 Akun Utama + Warm-up": fokus upload HANYA di akun utama (yang udah terhubung) dulu sampai ritme & komisi kebukti. Akun ke-2 & ke-3 di-"hangatkan" 3-5 hari dulu (isi profil, aktivitas normal/scroll) biar gak kedeteksi bot spam Meta, SAMBIL beresin pendaftaran fitur affiliate/keranjangnya.
+        (3) Volume akun utama: 2 video/hari (1 pagi jam 11.00-12.00, 1 malam jam 19.00-20.00). Tiap video di-distribusi ke Shopee Video + FB Reels + TikTok + Shorts dari STOK batch (video sama, upload native dari HP, jeda 3-4 jam).
+        (4) Scale ke 2-3 akun (jadi 6 posting/hari) HANYA setelah akun utama kebukti ada komisi & akun 2-3 udah hangat + terhubung. Pas scale: tinggal DUPLIKASI video stok ke akun-akun itu.
+        (5) WAJIB pasang link affiliate yang BENAR tiap posting (sesuai aturan per platform di atas). Video tanpa link = komisi nol.
+        (6) Evaluasi pakai CTR (klik keranjang) + KONVERSI (checkout), bukan cuma views. Daur ulang = REMIX (ganti hook/angle/VO), jangan re-upload identik.
+      - Ramp realistis: Minggu 1 = Rp 0, kuasai ritme 2 video/hari di 1 AKUN UTAMA + mulai warm-up akun 2-3. Minggu 2 = komisi pertama kecil, akun 2-3 mulai siap. Minggu 3 = aktifkan akun ke-2 (duplikasi stok), gandakan produk winner. Minggu 4 = jalan 2-3 akun, panen menuju target.
       ${insightList.length ? `\n      INSIGHT/CATATAN REAL dari user (WAJIB dipertimbangkan & sesuaikan plan-nya): ${insightList.map((x) => '"' + x.slice(0, 140) + '"').join("; ")}.\n` : ""}
-      TUGAS: Buat 4 FASE (per minggu). Tiap fase: "week" (cth "Minggu 1"), "title", "focus" (1 kalimat), "targetRp" (angka rupiah kumulatif realistis fase itu), "targetSales" (perkiraan jumlah penjualan/checkout fase itu, angka), "actions" (3-5 aksi), dan "decision" (1 kalimat "kapan putuskan" lanjut/pivot).
-      TIAP AKSI tandai jenisnya: "harian" = berulang tiap hari (cth posting 2 video/hari, bales komen, cek 1 produk baru) → tulis per-hari, JANGAN kasih angka total minggu. "sekali" = one-time (cth riset produk, daftar affiliate, setup etalase, pasang bio link).
-      Aksi harus KECIL & FLEKSIBEL (jangan bikin user tertekan), pakai rentang ("posting 2-3 video/hari"), dan sebut tool app ini di aksi yang relevan (cth "pakai Riset Produk AI buat...", "generate 'Prompt 1 Video' buat...").
+      TUGAS: Buat 4 FASE (per minggu). Tiap fase: "week" (cth "Minggu 1"), "title", "focus" (1 kalimat), "targetRp" (angka rupiah kumulatif realistis fase itu), "targetSales" (perkiraan jumlah penjualan/checkout fase itu, angka), "actions" (3-5 aksi), dan "decision" (1 kalimat "kapan putuskan" lanjut/pivot/scale akun).
+      TIAP AKSI tandai jenisnya: "harian" = berulang tiap hari (cth upload 1 video pagi + 1 malam ke 4 platform, bales komen) → tulis per-hari, JANGAN kasih angka total minggu. "sekali" = one-time (cth warm-up akun 2-3, daftar affiliate, setup etalase, pasang bio link, isi antrean batch).
+      Aksi harus KECIL & FLEKSIBEL (jangan bikin user tertekan) dan SPESIFIK soal akun & platform (cth "upload stok ke Shopee Video + FB Reels di akun utama", "warm-up akun FB ke-2: isi profil + scroll 10 menit"). Sebut tool app ini & fitur Antrean di aksi yang relevan.
 
       Balas JSON dengan properti 'phases' (array) dan 'tips' (string 1-2 kalimat penutup).
     `;
@@ -709,62 +710,64 @@ app.post("/api/generate-strategy", async (req, res) => {
     const target = Number(req.body?.targetRp) > 0 ? Number(req.body.targetRp) : 2000000;
     return res.json({
       goalRp: target,
-      tips: "Jangan panik kalau komisi awal nol — fokus benerin HOOK 3 detik & pastikan link affiliate kepasang. Konsistensi 2 video/hari ngalahin viral sekali-sekali.",
+      tips: "Jangan bebanin diri ngurus 3 akun sekaligus — kuasai ritme 2 video/hari di 1 akun utama dulu, akun 2-3 di-hangatkan sambil jalan. Begitu komisi masuk, tinggal duplikasi stok ke akun lain.",
       isFallback: true,
       errorDetail: error?.message || "Quota limit exceeded",
       phases: [
         {
           week: "Minggu 1",
-          title: "Fase Setup & Belajar Hook",
-          focus: "Bangun sistem: daftar affiliate, pasang link, dan produksi 10-14 video pertama buat nemu hook yang nahan 3 detik.",
+          title: "Fase Fokus 1 Akun Utama + Warm-up",
+          focus: "Kuasai ritme 2 video/hari HANYA di akun utama (Shopee + FB terhubung), sambil hangatkan akun 2-3.",
           targetRp: 0,
           targetSales: 0,
           actions: [
-            { t: "Daftar TikTok Affiliate / Shopee Affiliate & aktifkan keranjang kuning (sekali setup).", kind: "sekali" },
-            { t: "Pakai Riset Produk AI → pilih 2-3 produk di 1 niche yang sama, jangan loncat niche.", kind: "sekali" },
-            { t: "Generate 'Prompt 1 Video' buat tiap produk, lalu posting 2 video/hari native dari HP (jeda 3-4 jam).", kind: "harian" },
-            { t: "WAJIB tempel link affiliate yang benar di tiap video sebelum posting.", kind: "harian" },
+            { t: "Isi Antrean batch: generate stok 10-14 prompt video (2-3 produk, 1 niche) sekali duduk.", kind: "sekali" },
+            { t: "Upload akun UTAMA: 1 video pagi (11.00-12.00) + 1 malam (19.00-20.00) ke Shopee Video + FB Reels + TikTok + Shorts.", kind: "harian" },
+            { t: "Pasang link bener tiap posting: keranjang kuning di Shopee Video, link di komen pertama FB Reels, link Koleksiku di bio TikTok/Shorts.", kind: "harian" },
+            { t: "Warm-up akun FB/Shopee ke-2 & ke-3: isi profil + aktivitas normal 10 menit, JANGAN diisi video affiliate dulu.", kind: "harian" },
+            { t: "Beresin pendaftaran fitur affiliate/keranjang buat akun ke-2 & ke-3.", kind: "sekali" },
           ],
-          decision: "Akhir Minggu 1: kalau ada 1-2 video tembus >1000 views / retensi naik → lanjut gandakan; kalau semua retensi <40% → benerin HOOK, bukan ganti produk.",
+          decision: "Akhir Minggu 1: kalau ritme 2 video/hari di akun utama udah lancar & akun 2-3 udah 3-5 hari warm-up → siap lanjut. Jangan buka akun baru kalau ritme akun utama belum stabil.",
         },
         {
           week: "Minggu 2",
           title: "Fase Validasi Pola & Komisi Pertama",
-          focus: "Lipat gandakan hook yang terbukti nahan penonton & kejar klik keranjang pertama.",
+          focus: "Masih fokus akun utama: gandakan hook yang nahan penonton & kejar klik keranjang pertama.",
           targetRp: Math.round(target * 0.1),
           targetSales: 2,
           actions: [
-            { t: "Replikasi 3-5 variasi dari video retensi terbaik (ganti hook & angle, jangan re-upload sama).", kind: "harian" },
-            { t: "Posting 2-3 video/hari + bales komen 'link?' dengan arahan ke keranjang.", kind: "harian" },
+            { t: "Replikasi 3-5 variasi dari video terbaik (remix hook & angle, jangan re-upload identik).", kind: "harian" },
+            { t: "Lanjut 2 video/hari di akun utama ke 4 platform + bales komen 'link?' arahkan ke keranjang.", kind: "harian" },
             { t: "Catat CTR (klik keranjang) & konversi per video, bukan cuma views.", kind: "harian" },
+            { t: "Pastikan akun ke-2 udah hangat & fitur affiliate-nya aktif (siap dipakai minggu depan).", kind: "sekali" },
           ],
-          decision: "Kalau ada klik tapi nol checkout → cek harga/trust produk; kalau views tinggi klik rendah → perbaiki CTA/soft-selling.",
+          decision: "Ada klik tapi nol checkout → cek harga/trust produk. Komisi mulai masuk & akun ke-2 siap → minggu depan aktifkan akun ke-2.",
         },
         {
           week: "Minggu 3",
-          title: "Fase Scaling Produk Winner",
-          focus: "Fokuskan tenaga ke produk & angle yang udah ada konversinya, tambah 1-2 produk sejenis.",
+          title: "Fase Aktifkan Akun ke-2 (Duplikasi Stok)",
+          focus: "Mulai jalan 2 akun: duplikasi video stok ke akun ke-2 yang udah hangat & terhubung.",
           targetRp: Math.round(target * 0.35),
           targetSales: 8,
           actions: [
-            { t: "Gandakan produk winner → 5 variasi video/produk pakai generator app.", kind: "harian" },
-            { t: "Tambah 1-2 produk baru di niche yang sama lewat Riset Produk AI.", kind: "sekali" },
-            { t: "Naikin volume ke 3 video/hari kalau workflow udah lancar.", kind: "harian" },
+            { t: "Duplikasi video winner dari stok ke akun ke-2 (2 video/hari, pasang link sesuai platform).", kind: "harian" },
+            { t: "Tetap jalanin akun utama 2 video/hari — total jadi ~4 posting/hari (±10-15 menit).", kind: "harian" },
+            { t: "Tambah 1-2 produk baru di niche sama lewat Riset Produk AI → isi Antrean lagi.", kind: "sekali" },
           ],
-          decision: "Akhir Minggu 3: kalau komisi stabil naik → siapkan panen; kalau mentok → pivot angle/produk, pertahankan niche.",
+          decision: "Akhir Minggu 3: kalau 2 akun stabil & komisi naik → siapkan akun ke-3. Kalau kewalahan → tahan di 2 akun dulu, jangan maksa.",
         },
         {
           week: "Minggu 4",
-          title: "Fase Panen & Optimasi Komisi",
-          focus: "Maksimalkan komisi dari produk winner & momen (payday/tanggal kembar) menuju target bulanan.",
+          title: "Fase Panen 2-3 Akun & Optimasi",
+          focus: "Jalankan 2-3 akun (duplikasi stok yang sama) + dorong produk winner menuju target bulanan.",
           targetRp: target,
           targetSales: 20,
           actions: [
-            { t: "Dorong produk winner saat momen belanja (tanggal kembar, gajian, flash sale).", kind: "harian" },
-            { t: "Posting 3 video/hari konsisten, prioritas jam ramai audiens.", kind: "harian" },
-            { t: "Evaluasi menyeluruh: produk & hook mana yang paling banyak komisi → cetak biru bulan depan.", kind: "sekali" },
+            { t: "Aktifkan akun ke-3 kalau udah hangat & terhubung: duplikasi stok → 2 video/hari × 3 akun = 6 posting/hari.", kind: "harian" },
+            { t: "Dorong produk winner pas momen belanja (tanggal kembar, gajian, flash sale) di semua akun.", kind: "harian" },
+            { t: "Evaluasi menyeluruh: akun/produk/hook mana paling banyak komisi → cetak biru SOP bulan depan.", kind: "sekali" },
           ],
-          decision: "Kalau nyentuh target → kunci pola jadi SOP bulan depan + pertimbangkan tambah akun ke-2.",
+          decision: "Nyentuh target → kunci jadi SOP (stok batch → distribusi 6 posting/hari). Belum → fokusin tenaga ke akun & produk yang komisinya paling gede.",
         },
       ],
     });

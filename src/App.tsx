@@ -223,6 +223,11 @@ export default function App() {
   const [wizardOpen, setWizardOpen] = useState<boolean>(false);
   const [wizardStep, setWizardStep] = useState<number>(0);
   const [wizardLink, setWizardLink] = useState<string>("");
+  // Popup "ambil foto produk" setelah salin prompt (+ tombol Google Flow)
+  const [photoPopupOpen, setPhotoPopupOpen] = useState<boolean>(false);
+  const [popupPhoto, setPopupPhoto] = useState<string>("");
+  const [popupPhotoLink, setPopupPhotoLink] = useState<string>("");
+  const [popupLoading, setPopupLoading] = useState<boolean>(false);
 
   // Step 2: Naskah Voice over
   const [draftVoiceOver, setDraftVoiceOver] = useState<string>("");
@@ -891,7 +896,7 @@ export default function App() {
     }
     const singlePrompt = buildSingleVideoPrompt();
     navigator.clipboard.writeText(singlePrompt);
-    showNotification("Prompt 1 Video disalin! Google Flow kebuka — tempel (Cmd+V) & generate. 🎬", "success");
+    showNotification("Prompt 1 Video disalin! Siapin foto produk, lalu buka Flow. 🎬", "success");
 
     // Masukin video ini ke STOK antrean (kalau belum ada) biar kekumpul
     const pName = productName || "Produk";
@@ -908,10 +913,40 @@ export default function App() {
       try { safeStorage.setItem("affos_queue", JSON.stringify(next)); } catch (e) {}
       return next;
     });
-    openGoogleFlow();
+    // Buka popup "ambil foto produk" (+ tombol Google Flow)
+    setPopupPhoto(""); setPopupPhotoLink(""); setPhotoPopupOpen(true);
   };
 
   const openGoogleFlow = () => { try { window.open("https://labs.google/fx/tools/flow", "_blank", "noopener,noreferrer"); } catch (e) {} };
+
+  // Popup foto produk: upload file / tempel link → preview → download → ke Flow
+  const handlePopupUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => setPopupPhoto(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  };
+  const handlePopupLink = async () => {
+    const url = popupPhotoLink.trim();
+    if (!url) { showNotification("Tempel dulu link fotonya ya.", "info"); return; }
+    setPopupLoading(true);
+    try {
+      const { dataUrl } = await fetchImageDataUrl(url);
+      setPopupPhoto(dataUrl);
+      showNotification("Foto kemuat! 📷", "success");
+    } catch (e: any) {
+      showNotification(e?.message || "Gagal muat foto. Pastikan link gambar langsung.", "error");
+    } finally { setPopupLoading(false); }
+  };
+  const downloadPopupPhoto = () => {
+    if (!popupPhoto) return;
+    try {
+      const a = document.createElement("a");
+      const ext = (popupPhoto.match(/^data:image\/(\w+)/)?.[1]) || "jpg";
+      a.href = popupPhoto; a.download = `${(productName || "produk").replace(/[^a-z0-9]/gi, "_").slice(0, 40)}_foto.${ext}`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      showNotification("Foto ke-download ke laptop. 💾", "success");
+    } catch (e) {}
+  };
 
   // Versi MURNI buildSingleVideoPrompt — dari data item (buat Antrean/batch, gak gantung state editor)
   // Struktur 3-bahan: Foto Statis 1 (hook) → Video Asli Pendek (B-roll demo) → Foto Statis 2 (CTA). 1 produk/video.
@@ -4369,6 +4404,64 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 ))}
               </div>
               <p className="text-[10px] text-slate-600 mt-4">AI lagi mikir keras... santai aja, bentar lagi 🎬</p>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* POPUP: AMBIL FOTO PRODUK (setelah salin prompt) */}
+      <AnimatePresence>
+        {photoPopupOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="photo-popup">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
+            >
+              <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-gradient-to-br from-pink-500 to-violet-600 rounded-lg text-white shadow-lg"><Upload className="w-5 h-5 text-white" /></div>
+                  <div>
+                    <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-100">Ambil Foto Produk</h3>
+                    <p className="text-[10px] text-slate-400">Prompt udah kesalin. Siapin foto produk buat di-upload di Flow.</p>
+                  </div>
+                </div>
+                <button onClick={() => setPhotoPopupOpen(false)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all"><X className="w-4 h-4" /></button>
+              </div>
+
+              <div className="p-5 overflow-y-auto flex-1 scrollbar-thin space-y-3">
+                {/* preview / upload zone */}
+                <label className="cursor-pointer block rounded-xl overflow-hidden border-2 border-dashed border-slate-700 bg-[#08090f]/60 min-h-[180px] flex items-center justify-center hover:border-violet-500/50 transition-all">
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePopupUpload(f); e.currentTarget.value = ""; }} />
+                  {popupPhoto
+                    ? <img src={popupPhoto} alt="foto produk" className="max-h-[220px] rounded-lg object-contain" />
+                    : <span className="text-xs text-slate-500 text-center px-4 flex flex-col items-center gap-2 py-8"><Upload className="w-6 h-6" />Klik buat upload foto produk dari HP/laptop</span>}
+                </label>
+                {/* atau tempel link */}
+                <div className="flex gap-2">
+                  <input
+                    type="text" value={popupPhotoLink}
+                    onChange={(e) => setPopupPhotoLink(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !popupLoading) handlePopupLink(); }}
+                    placeholder="atau tempel link gambar (Shopee: klik kanan → Salin alamat)"
+                    className="flex-1 min-w-0 bg-[#0b0c15] border border-slate-800 focus:border-cyan-500/60 rounded-lg px-3 py-2 text-[11px] text-slate-100 placeholder:text-slate-600 outline-none"
+                  />
+                  <button onClick={handlePopupLink} disabled={popupLoading} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600/80 hover:bg-cyan-500 text-white text-[11px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0">
+                    {popupLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Ambil
+                  </button>
+                </div>
+                {popupPhoto && (
+                  <button onClick={downloadPopupPhoto} className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 hover:bg-slate-850 text-[12px] font-bold font-mono transition-all active:scale-95">
+                    <Download className="w-4 h-4 text-emerald-400" /> Download foto ke laptop
+                  </button>
+                )}
+              </div>
+
+              <div className="px-5 py-4 border-t border-slate-800/60 bg-slate-950/30 flex items-center justify-between gap-2 shrink-0">
+                <button onClick={() => setPhotoPopupOpen(false)} className="text-[11px] font-mono font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg transition-all">Tutup</button>
+                <button onClick={() => { openGoogleFlow(); setPhotoPopupOpen(false); }} className="text-[12px] font-mono font-bold text-white bg-gradient-to-r from-emerald-600 to-cyan-600 hover:opacity-90 px-4 py-2 rounded-lg shadow-lg transition-all active:scale-95 flex items-center gap-1.5">
+                  <ExternalLink className="w-3.5 h-3.5" /> Buka Google Flow
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

@@ -973,7 +973,7 @@ Keep the SAME creator identity, lighting mood and visual style, and a consistent
       showNotification("Prompt VIDEO 1 disalin! Siapin foto, lalu generate di Flow. 🎬", "success");
       setPopupPhoto(""); setPopupPhotoLink(""); setPhotoPopupOpen(true);
     } else {
-      showNotification("Prompt VIDEO 2 (sambungan) disalin! Generate di Flow, lalu taruh SETELAH Video 1 di timeline. 🎬", "success");
+      showNotification("Video 2 disalin! TRIK NYAMBUNG: di Flow, pakai FRAME TERAKHIR Video 1 sebagai gambar referensi/awal Video 2 (bukan foto produk lagi). 🔗", "success");
     }
   };
 
@@ -3386,7 +3386,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
               </div>
               <p className="text-[10px] text-slate-500 leading-normal mt-2.5">
                 💡 {videoDuration > 10
-                  ? <>Durasi {videoDuration} dtk &gt; 10 dtk → Flow gak bisa 1 klip. Pakai <b className="text-slate-300">"SALIN VIDEO 1"</b> & <b className="text-slate-300">"SALIN VIDEO 2 (sambungan)"</b>: generate dua-duanya di Flow (Video 2 nyambung dari Video 1), lalu gabung urut di timeline → jadi 1 video mulus.</>
+                  ? <>Durasi {videoDuration} dtk &gt; 10 dtk → Flow gak bisa 1 klip. Pakai <b className="text-slate-300">"SALIN VIDEO 1"</b> & <b className="text-slate-300">"SALIN VIDEO 2 (sambungan)"</b>, lalu gabung urut di timeline. <b className="text-amber-300">Biar nyambung mulus:</b> pas generate Video 2 di Flow, pakai <b className="text-slate-300">frame TERAKHIR Video 1</b> sebagai gambar referensi/awal (bukan foto produk lagi) — biar baju/rambut/background/produk sama persis.</>
                   : <>Pakai <b className="text-slate-300">"SALIN PROMPT 1 VIDEO"</b> — 1 prompt jadi 1 video ~{videoDuration} detik, tempel (Cmd+V) & generate di Flow (1 klip langsung jadi).</>}
               </p>
             </div>

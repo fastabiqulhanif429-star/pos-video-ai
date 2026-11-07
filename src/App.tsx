@@ -981,7 +981,7 @@ export default function App() {
       )
       .join("\n");
     return `Create ONE short continuous vertical 9:16 photorealistic affiliate video (~${dur} seconds) about ONE product only: ${pName}.
-Keep the product ${pName} identical and clearly visible — same packaging, label, colors and shape; do NOT substitute or invent a different product. ONE product per video, do not mix other products.
+CRITICAL PRODUCT ACCURACY: The product MUST be an EXACT REPLICA of the ATTACHED REFERENCE IMAGE — copy the exact tube/bottle color, label text, typography, logo and overall design pixel-for-pixel. Do NOT recolor, redesign, restyle, or invent a different-looking product; do NOT make it white/generic if the reference is colored. If several products are in the reference, use ONLY "${pName}". Keep it identical and clearly visible in every beat; one product per video.
 IMPORTANT: output must be ONE seamless ~${dur}s video from start to finish — a single continuous take that smoothly transitions through three beats:
 ${beats}
 Keep the SAME creator identity (if a person appears), lighting mood and visual style across the whole video. Overall aesthetic: ${item.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous ~${dur}-second video, 9:16 vertical, photorealistic 8k, smooth motion.`;

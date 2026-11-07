@@ -217,6 +217,12 @@ export default function App() {
   const [uploadingSlot, setUploadingSlot] = useState<string | null>(null);
   const [importUrl, setImportUrl] = useState<string>("");
   const [importing, setImporting] = useState<boolean>(false);
+  const [classifyText, setClassifyText] = useState<string>("");
+  const [classifying, setClassifying] = useState<boolean>(false);
+  // Wizard materi (muncul setelah salin prompt): 0=hook(foto1), 1=tengah(video), 2=CTA(foto2)
+  const [wizardOpen, setWizardOpen] = useState<boolean>(false);
+  const [wizardStep, setWizardStep] = useState<number>(0);
+  const [wizardLink, setWizardLink] = useState<string>("");
 
   // Step 2: Naskah Voice over
   const [draftVoiceOver, setDraftVoiceOver] = useState<string>("");
@@ -859,8 +865,8 @@ export default function App() {
       try { safeStorage.setItem("affos_queue", JSON.stringify(next)); } catch (e) {}
       return next;
     });
-    setQueueForm({ productName: "", keyFeatures: "", targetAudience: "", photoUrl: "" });
-    setIsQueueModalOpen(true);
+    // Buka WIZARD MATERI (hook → tengah → CTA) buat disiapin sebelum ke Flow
+    openMaterialWizard();
   };
 
   // Versi MURNI buildSingleVideoPrompt — dari data item (buat Antrean/batch, gak gantung state editor)
@@ -1625,6 +1631,72 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
     }
   };
 
+  // AI klasifikasi: dari teks (deskripsi Shopee) isiin Nama + Fitur
+  const classifyProductFromText = async () => {
+    const text = classifyText.trim();
+    if (!text) { showNotification("Tempel dulu deskripsi/nama produknya ya.", "info"); return; }
+    setClassifying(true);
+    showNotification("AI lagi ngeklasifikasi nama & fitur...", "info");
+    try {
+      const resp = await fetch("/api/classify-product", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || "Gagal");
+      if (data.productName) setProductName(data.productName);
+      if (data.keyFeatures) setKeyFeatures(data.keyFeatures);
+      setClassifyText("");
+      showNotification(data.isFallback ? "Nama & fitur keisi (profil cepat). Cek lagi ya." : "Nama & fitur keisi dari AI! 🧠", "success");
+    } catch (e: any) {
+      showNotification(e?.message || "Gagal klasifikasi.", "error");
+    } finally {
+      setClassifying(false);
+    }
+  };
+
+  // Download 1 media dari link → taruh ke slot tertentu (buat wizard)
+  const importToSlot = async (slot: "foto1" | "video" | "foto2", url: string) => {
+    if (!url.trim()) { showNotification("Tempel dulu link gambar/video-nya.", "info"); return; }
+    setImporting(true);
+    try {
+      const resp = await fetch("/api/import-materials", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      const data = await resp.json();
+      const mats: { dataUrl: string; mimeType: string; kind: "image" | "video" }[] = data.materials || [];
+      const wantVideo = slot === "video";
+      const pick = mats.find((m) => (wantVideo ? m.kind === "video" : m.kind === "image")) || mats[0];
+      if (!pick) { showNotification(data.note || "Gak ada materi dari link ini.", "error"); return; }
+      const blob = await (await fetch(pick.dataUrl)).blob();
+      const ext = pick.mimeType.split("/")[1] || "bin";
+      const file = new File([blob], `${slot}.${ext}`, { type: pick.mimeType });
+      await uploadMaterial(slot, file);
+      setWizardLink("");
+    } catch (e) {
+      showNotification("Gagal ambil dari link.", "error");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // Buka wizard materi (dipanggil setelah salin prompt) — pastiin produk kesimpan dulu
+  const openMaterialWizard = () => {
+    if (productName.trim() && !selectedBankId) {
+      const id = `bp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      persistBank([...bankProducts, { id, name: productName.trim(), features: keyFeatures.trim(), materials: {} }]);
+      setSelectedBankId(id);
+      revokeMaterialUrls();
+    } else if (selectedBankId) {
+      const p = bankProducts.find((x) => x.id === selectedBankId);
+      if (p) loadMaterialUrls(p);
+    }
+    setWizardStep(0);
+    setWizardLink("");
+    setWizardOpen(true);
+  };
+
   const selectedBank = bankProducts.find((p) => p.id === selectedBankId) || null;
   const bankMaterialMeta = (slot: "foto1" | "video" | "foto2") => selectedBank?.materials[slot];
   const bankMissing = (): string[] => {
@@ -2310,6 +2382,28 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 })}
               </div>
 
+              {/* AI klasifikasi: tempel deskripsi Shopee → isiin Nama + Fitur */}
+              <div className="bg-[#08090f]/70 border border-violet-500/20 rounded-xl p-3 space-y-1.5">
+                <label className="text-[10px] uppercase tracking-wider text-violet-300 font-mono font-bold flex items-center gap-1.5">
+                  <Sparkles className="w-3 h-3" /> Tempel deskripsi dari Shopee → AI isiin nama & fitur
+                </label>
+                <textarea
+                  rows={2}
+                  value={classifyText}
+                  onChange={(e) => setClassifyText(e.target.value)}
+                  placeholder="Salin deskripsi/judul produk dari Shopee, tempel di sini..."
+                  className="w-full bg-[#0b0c15] border border-slate-800 focus:border-violet-500/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 placeholder:text-slate-600 outline-none resize-none"
+                />
+                <button
+                  onClick={classifyProductFromText}
+                  disabled={classifying}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600/80 hover:bg-violet-500 text-white text-[11px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60"
+                >
+                  {classifying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  AI Isiin Nama &amp; Fitur
+                </button>
+              </div>
+
               {/* INPUT NAMA & FITUR PRODUK */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
@@ -2338,88 +2432,15 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 </div>
               </div>
 
-              {/* Simpan ke bank + status materi */}
-              <div className="flex items-center justify-between gap-2 flex-wrap">
+              {/* Simpan ke bank */}
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={saveBankProduct}
                   className="text-[11px] font-mono font-bold text-amber-300 hover:text-amber-200 bg-amber-950/40 border border-amber-500/40 px-3 py-1.5 rounded-lg transition-all active:scale-95 flex items-center gap-1.5"
                 >
                   <Save className="w-3.5 h-3.5" /> {selectedBankId ? "Update produk" : "Simpan ke Bank"}
                 </button>
-                {(() => {
-                  const miss = bankMissing();
-                  return miss.length > 0
-                    ? <span className="text-[10px] font-mono text-amber-400">⚠️ Materi kurang: {miss.join(", ")}</span>
-                    : <span className="text-[10px] font-mono text-emerald-400">✅ Materi lengkap (siap upload ke Flow)</span>;
-                })()}
-              </div>
-
-              {/* Tempel link produk Shopee / link gambar → auto-ambil materi */}
-              <div className="bg-[#08090f]/70 border border-cyan-500/20 rounded-xl p-3 space-y-1.5">
-                <label className="text-[10px] uppercase tracking-wider text-cyan-300 font-mono font-bold flex items-center gap-1.5">
-                  <Download className="w-3 h-3" /> Ambil materi dari link
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={importUrl}
-                    onChange={(e) => setImportUrl(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !importing) importMaterialsFromLink(); }}
-                    placeholder="Tempel link produk Shopee / link gambar (klik kanan foto → Salin alamat gambar)"
-                    className="flex-1 min-w-0 bg-[#0b0c15] border border-slate-800 focus:border-cyan-500/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 placeholder:text-slate-600 outline-none"
-                  />
-                  <button
-                    onClick={importMaterialsFromLink}
-                    disabled={importing}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600/80 hover:bg-cyan-500 text-white text-[12px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0"
-                  >
-                    {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                    Ambil
-                  </button>
-                </div>
-                <p className="text-[9px] text-slate-600 leading-relaxed">⚠️ Link produk Shopee kadang diblokir server (anti-bot). Kalau gagal, buka produknya → klik kanan <b className="text-slate-500">foto</b> → "Salin alamat gambar" → tempel di sini (foto 1 & 2 satu-satu).</p>
-              </div>
-
-              {/* Slot upload materi (2 foto + 1 video) */}
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-slate-500 font-mono font-bold block mb-1.5">
-                  Materi Produk {selectedBank ? `· ${selectedBank.name}` : "(simpan produk dulu)"}
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {([
-                    { key: "foto1" as const, label: "Foto 1", desc: "produk clear (hook)", accept: "image/*", icon: "📸" },
-                    { key: "video" as const, label: "Video asli", desc: "produk dipakai (tengah)", accept: "video/*", icon: "🎥" },
-                    { key: "foto2" as const, label: "Foto 2", desc: "kemasan/BPOM (CTA)", accept: "image/*", icon: "📸" },
-                  ]).map((s) => {
-                    const url = materialUrls[s.key];
-                    const has = !!bankMaterialMeta(s.key);
-                    const isUp = uploadingSlot === s.key;
-                    return (
-                      <div key={s.key} className={`rounded-xl border p-2 flex flex-col ${has ? "border-emerald-500/30 bg-emerald-950/10" : "border-dashed border-slate-700 bg-slate-950/40"}`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[9px] font-mono font-bold text-slate-300">{s.icon} {s.label}</span>
-                          {has && <button onClick={() => removeMaterial(s.key)} className="text-slate-600 hover:text-rose-400" title="hapus materi"><X className="w-2.5 h-2.5" /></button>}
-                        </div>
-                        <label className="cursor-pointer flex-1 flex items-center justify-center min-h-[64px] rounded-lg overflow-hidden bg-[#08090f]/60">
-                          <input type="file" accept={s.accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMaterial(s.key, f); e.currentTarget.value = ""; }} />
-                          {isUp ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                          ) : url ? (
-                            s.key === "video"
-                              ? <video src={url} className="max-h-[64px] rounded" muted playsInline />
-                              : <img src={url} alt={s.label} className="max-h-[64px] rounded object-contain" />
-                          ) : (
-                            <span className="text-[9px] text-slate-500 text-center px-1 flex flex-col items-center gap-1"><Upload className="w-3.5 h-3.5" />{s.desc}</span>
-                          )}
-                        </label>
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="text-[10px] text-slate-600 mt-1.5 flex items-start gap-1.5">
-                  <Info className="w-3 h-3 text-slate-700 mt-0.5 shrink-0" />
-                  Materi disimpan di browser (bank produk). Pas generate di Flow/Veo, ambil materi ini & upload manual sesuai bahan tiap scene. 1 video = 1 produk.
-                </p>
+                <span className="text-[10px] text-slate-600">Materi (foto/video) bakal diminta <b className="text-slate-500">pas kamu salin prompt</b> (wizard) — biar sesuai produk aslinya.</span>
               </div>
 
             </div>
@@ -3162,7 +3183,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                   <button
                     onClick={copySingleVideoPrompt}
                     className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:opacity-90 text-white px-4 py-2 rounded-xl font-mono font-bold transition-all shadow-md shadow-emerald-500/20 active:scale-95"
-                    title="Salin prompt 1 video utuh + buka antrean stok"
+                    title="Salin prompt 1 video utuh + buka wizard materi"
                   >
                     <Video className="w-3.5 h-3.5" />
                     SALIN PROMPT 1 VIDEO
@@ -4269,6 +4290,121 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
+
+      {/* MODAL: WIZARD MATERI (setelah salin prompt) */}
+      <AnimatePresence>
+        {wizardOpen && (() => {
+          const steps = [
+            { key: "foto1" as const, icon: "📸", title: "Foto produk CLEAR (HOOK)", sub: "3 detik pertama — penahan mata", accept: "image/*", canSkip: false },
+            { key: "video" as const, icon: "🎥", title: "Video produk DIPAKAI (TENGAH)", sub: "produk dioles / dipakai / unboxing", accept: "video/*", canSkip: true },
+            { key: "foto2" as const, icon: "📸", title: "Foto kemasan/BPOM (CTA)", sub: "ajakan klik di akhir video", accept: "image/*", canSkip: true },
+          ];
+          const s = steps[wizardStep] || steps[0];
+          const slot = s.key;
+          const url = materialUrls[slot];
+          const has = !!bankMaterialMeta(slot);
+          const isUp = uploadingSlot === slot;
+          const isLast = wizardStep === steps.length - 1;
+          const finish = () => { setWizardOpen(false); showNotification("Materi siap! Buka Google Flow → tempel prompt → upload materi tiap scene. 🎬", "success"); };
+          const next = () => { if (isLast) finish(); else { setWizardStep(wizardStep + 1); setWizardLink(""); } };
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="wizard-modal">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
+              >
+                {/* Header */}
+                <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-gradient-to-br from-pink-500 to-violet-600 rounded-lg text-white shadow-lg"><Video className="w-5 h-5 text-white" /></div>
+                    <div>
+                      <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-100">Siapin Materi buat Flow</h3>
+                      <p className="text-[10px] text-slate-400">Prompt udah kesalin. Cek materi tiap scene buat produk <b className="text-slate-300">{productName || "ini"}</b>.</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setWizardOpen(false)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all"><X className="w-4 h-4" /></button>
+                </div>
+
+                {/* Step dots */}
+                <div className="flex items-center justify-center gap-2 py-3 bg-[#0b0c15] shrink-0">
+                  {steps.map((st, i) => (
+                    <div key={i} className={`flex items-center gap-1.5 ${i === wizardStep ? "" : "opacity-50"}`}>
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold font-mono ${i < wizardStep ? "bg-emerald-500 text-slate-950" : i === wizardStep ? "bg-violet-600 text-white" : "bg-slate-800 text-slate-400"}`}>{i < wizardStep ? "✓" : i + 1}</span>
+                      {i < steps.length - 1 && <span className="w-5 h-px bg-slate-700" />}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Body */}
+                <div className="p-5 overflow-y-auto flex-1 scrollbar-thin space-y-3">
+                  <div className="text-center">
+                    <div className="text-3xl mb-1">{s.icon}</div>
+                    <h4 className="text-base font-extrabold text-white">{s.title}</h4>
+                    <p className="text-[11px] text-slate-400">{s.sub}</p>
+                  </div>
+
+                  {/* Preview / upload zone */}
+                  <label className="cursor-pointer block rounded-xl overflow-hidden border-2 border-dashed border-slate-700 bg-[#08090f]/60 min-h-[180px] flex items-center justify-center hover:border-violet-500/50 transition-all">
+                    <input type="file" accept={s.accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMaterial(slot, f); e.currentTarget.value = ""; }} />
+                    {isUp ? (
+                      <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
+                    ) : url ? (
+                      slot === "video"
+                        ? <video src={url} className="max-h-[220px] rounded-lg" controls muted playsInline />
+                        : <img src={url} alt={s.title} className="max-h-[220px] rounded-lg object-contain" />
+                    ) : (
+                      <span className="text-xs text-slate-500 text-center px-4 flex flex-col items-center gap-2 py-8"><Upload className="w-6 h-6" />Klik buat upload {slot === "video" ? "video" : "foto"} dari HP/laptop</span>
+                    )}
+                  </label>
+
+                  {/* atau tempel link */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text" value={wizardLink}
+                      onChange={(e) => setWizardLink(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !importing) importToSlot(slot, wizardLink); }}
+                      placeholder={`atau tempel link ${slot === "video" ? "video" : "gambar"} (dari Shopee: klik kanan → Salin alamat)`}
+                      className="flex-1 min-w-0 bg-[#0b0c15] border border-slate-800 focus:border-cyan-500/60 rounded-lg px-3 py-2 text-[11px] text-slate-100 placeholder:text-slate-600 outline-none"
+                    />
+                    <button onClick={() => importToSlot(slot, wizardLink)} disabled={importing} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600/80 hover:bg-cyan-500 text-white text-[11px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0">
+                      {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Ambil
+                    </button>
+                  </div>
+
+                  <div className="text-center">
+                    {has
+                      ? <span className="text-[11px] font-mono text-emerald-400">✅ Materi buat scene ini udah siap</span>
+                      : <span className="text-[11px] font-mono text-slate-500">Belum ada materi{s.canSkip ? " — boleh di-skip, siapin nanti di Flow" : ""}</span>}
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-5 py-4 border-t border-slate-800/60 bg-slate-950/30 flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex gap-2">
+                    {wizardStep > 0 && (
+                      <button onClick={() => { setWizardStep(wizardStep - 1); setWizardLink(""); }} className="text-[11px] font-mono font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-3 py-2 rounded-lg transition-all">← Balik</button>
+                    )}
+                    {has && (
+                      <label className="cursor-pointer text-[11px] font-mono font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-3 py-2 rounded-lg transition-all flex items-center gap-1.5">
+                        <input type="file" accept={s.accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMaterial(slot, f); e.currentTarget.value = ""; }} />
+                        <RefreshCw className="w-3 h-3" /> Ganti
+                      </label>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    {s.canSkip && (
+                      <button onClick={next} className="text-[11px] font-mono font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg transition-all">Skip</button>
+                    )}
+                    <button onClick={next} className="text-[11px] font-mono font-bold text-white bg-gradient-to-r from-pink-500 to-violet-600 hover:from-pink-400 hover:to-violet-500 px-4 py-2 rounded-lg shadow-lg transition-all active:scale-95 flex items-center gap-1.5">
+                      {has ? "Yakin, pakai ini" : (isLast ? "Selesai" : "Lanjut")} {isLast ? <Check className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* MODAL: ANTREAN / BATCH QUEUE */}

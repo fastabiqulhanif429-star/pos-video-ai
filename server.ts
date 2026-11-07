@@ -830,6 +830,51 @@ app.post("/api/fetch-image", async (req, res) => {
   }
 });
 
+// Endpoint 9: Klasifikasi produk — dari teks (deskripsi Shopee) ambil nama + fitur ringkas.
+app.post("/api/classify-product", async (req, res) => {
+  try {
+    const { text } = req.body;
+    const src = (text || "").toString().trim().slice(0, 4000);
+    if (!src) return res.status(400).json({ error: "Teks kosong." });
+
+    const prompt = `
+      Dari teks deskripsi produk marketplace (Shopee/TikTok) berikut, ambil:
+      - productName: nama produk yang RINGKAS & jelas (merek + tipe, maksimal ~6 kata; jangan seluruh judul SEO yang panjang).
+      - keyFeatures: 1 kalimat ringkas fitur/manfaat utama produk (maksimal ~140 karakter), gaya natural.
+      Bahasa Indonesia. Jangan mengarang fitur yang tidak ada di teks.
+
+      TEKS:
+      """${src}"""
+
+      Balas JSON { "productName": "...", "keyFeatures": "..." }.
+    `;
+    const response = await generateWithFallback({
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: { productName: { type: Type.STRING }, keyFeatures: { type: Type.STRING } },
+          required: ["productName", "keyFeatures"],
+        },
+      },
+    });
+    const parsed = JSON.parse(response.text || "{}");
+    return res.json({ productName: parsed.productName || "", keyFeatures: parsed.keyFeatures || "" });
+  } catch (error: any) {
+    console.warn("Error classify-product, using fallback:", error?.message || error);
+    // Fallback tanpa AI: baris pertama = nama (potong), gabung baris fitur jadi 1 kalimat.
+    const src = (req.body?.text || "").toString().trim();
+    const lines = src.split(/\n+/).map((l: string) => l.trim()).filter(Boolean);
+    let name = (lines[0] || "Produk").replace(/\s+/g, " ").slice(0, 60);
+    // ambil kata merek awal (sebelum tanda '/' atau '-')
+    name = name.split(/[\/|]/)[0].trim().split(" ").slice(0, 6).join(" ");
+    const featLines = lines.filter((l: string) => /^[-•*]/.test(l)).map((l: string) => l.replace(/^[-•*]\s*/, ""));
+    const keyFeatures = (featLines.slice(0, 3).join(", ") || lines.slice(1, 3).join(" ")).slice(0, 140);
+    return res.json({ productName: name, keyFeatures, isFallback: true });
+  }
+});
+
 // Endpoint 8: Import materi dari link produk Shopee / link gambar langsung.
 // Catatan: Shopee sering blokir akses otomatis dari server datacenter (Render) → bisa gagal.
 // Fallback: user paste link GAMBAR langsung (klik kanan foto → Salin alamat gambar).

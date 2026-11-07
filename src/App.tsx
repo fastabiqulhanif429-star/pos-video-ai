@@ -776,8 +776,27 @@ export default function App() {
       showNotification("Belum ada skenario yang dibuat.", "info");
       return;
     }
-    navigator.clipboard.writeText(buildSingleVideoPrompt());
-    showNotification("Prompt 1 Video (single-shot) disalin! Tempel 1x di Flow/Veo → jadi 1 video utuh. 🎬", "success");
+    const singlePrompt = buildSingleVideoPrompt();
+    navigator.clipboard.writeText(singlePrompt);
+    showNotification("Prompt 1 Video disalin! Tempel di Flow/Veo + attach 3 bahan. 🎬", "success");
+
+    // Masukin video ini ke STOK antrean (kalau belum ada) biar kekumpul, lalu buka popup antrean
+    const pName = productName || "Produk";
+    setQueueItems((prev) => {
+      const exists = prev.some((q) => q.result?.singlePrompt === singlePrompt);
+      if (exists) { try { safeStorage.setItem("affos_queue", JSON.stringify(prev)); } catch (e) {} return prev; }
+      const item: QueueItem = {
+        id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        productName: pName, keyFeatures, targetAudience, photoUrl: "",
+        tone: selectedTone, gender: voiceGender, status: "done",
+        result: { vo: draftVoiceOver, scenes: blueprint.scenes, visualAesthetic: blueprint.visualAesthetic, hasImage: false, singlePrompt },
+      };
+      const next = [item, ...prev];
+      try { safeStorage.setItem("affos_queue", JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    setQueueForm({ productName: "", keyFeatures: "", targetAudience: "", photoUrl: "" });
+    setIsQueueModalOpen(true);
   };
 
   // Versi MURNI buildSingleVideoPrompt — dari data item (buat Antrean/batch, gak gantung state editor)
@@ -1820,7 +1839,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
   }
 
   return (
-    <div className={`min-h-screen bg-[#07080c] text-slate-100 font-sans p-2 sm:p-4 md:p-6 select-none relative overflow-x-hidden ${theme === 'light' ? 'light-theme' : 'dark-theme'}`} id="app-container">
+    <div className={`min-h-screen bg-[#07080c] text-slate-100 font-sans p-2 sm:p-4 md:p-6 relative overflow-x-hidden ${theme === 'light' ? 'light-theme' : 'dark-theme'}`} id="app-container">
       
       {/* Dynamic Style Injection for Theme Customization */}
       <style>{`
@@ -1943,34 +1962,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
               </button>
 
               <button
-                onClick={() => {
-                  setCurrentGuideStep(0);
-                  setIsGuideModalOpen(true);
-                }}
-                className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 font-semibold transition-all bg-amber-950/40 border-amber-500/40 text-amber-300 hover:bg-amber-900/40 shadow-sm shadow-amber-500/5 active:scale-95"
-                title="Panduan Langkah demi Langkah"
-                id="btn-panduan"
-              >
-                <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
-                <span className="font-mono">Panduan</span>
-                <span className="text-[9px] bg-amber-500 text-slate-950 px-1 rounded font-mono font-bold">INFO</span>
-              </button>
-
-              <button 
-                onClick={() => {
-                  setCurrentGuideStep(6);
-                  setIsGuideModalOpen(true);
-                }}
-                className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 font-semibold transition-all bg-rose-950/40 border-rose-500/40 text-rose-300 hover:bg-rose-900/40 shadow-sm shadow-rose-500/10 active:scale-95"
-                title="Tonton Video Panduan Tutorial YouTube"
-                id="btn-video-panduan"
-              >
-                <Play className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
-                <span className="font-mono">Video Panduan</span>
-                <span className="text-[9px] bg-rose-500 text-white px-1 rounded font-mono font-bold">PLAY</span>
-              </button>
-
-              <button 
                 onClick={() => setIsHistoryModalOpen(true)}
                 className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 font-semibold transition-all bg-indigo-950/40 border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/40 shadow-sm shadow-indigo-500/5 active:scale-95"
                 title="Lihat Riwayat Pembuatan Blueprint"
@@ -2066,123 +2057,14 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
       </div>
 
       {activeMainTab === "robot" && (<>
-      {/* BAR PANDUAN VIDEO TUTORIAL */}
-      <div className="max-w-[1500px] mx-auto mb-6" id="bar-panduan-video">
-        <div className="bg-gradient-to-r from-red-950/40 via-[#10111a] to-amber-950/30 border border-red-500/25 rounded-2xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-4 shadow-xl">
-          <div className="flex items-center gap-3.5">
-            <div className="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0 shadow-inner">
-              <Play className="w-5 h-5 fill-red-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider font-mono text-white">
-                  Bar Panduan Video POS Video AI
-                </h3>
-                <span className="text-[9px] bg-red-600 text-white font-mono font-bold px-1.5 py-0.5 rounded shadow-sm">
-                  YOUTUBE
-                </span>
-              </div>
-              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
-                Tonton tutorial praktis cara mengubah foto produk jadi naskah video affiliate & blueprint Veo/Flow.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <a
-              href="https://youtu.be/YIx556qhW38"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>Buka YouTube</span>
-            </a>
-            <button
-              onClick={() => {
-                setCurrentGuideStep(6);
-                setIsGuideModalOpen(true);
-              }}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-mono font-bold flex items-center gap-2 shadow-md shadow-red-600/20 active:scale-95 transition-all cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5 fill-white" />
-              <span>Putar Video Panduan</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* CORE WRAPPER */}
       <main className="max-w-[1500px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6" id="main-workflow">
         
-        {/* LEFT COLUMN: PRODUCT IMAGE UPLOAD & ANALYSIS (lg:col-span-5) */}
-        <section className="lg:col-span-5 flex flex-col gap-6" id="product-analyser-panel">
-          
-          <div className="bg-[#10111a]/95 border border-slate-800/80 rounded-2xl p-5 shadow-xl relative overflow-hidden flex-1">
+        {/* BAR PRODUK (ringkas) */}
+        <section className="lg:col-span-12" id="product-analyser-panel">
+
+          <div className="bg-[#10111a]/95 border border-slate-800/80 rounded-2xl p-5 shadow-xl relative overflow-hidden">
             
-            {/* Header section card */}
-            <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-800/80">
-              <div className="flex items-center gap-2.5">
-                <div className="w-2 h-2 rounded-full bg-pink-500 shadow-md shadow-pink-500/50" />
-                <h2 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-200">
-                  1. Data Utama Produk
-                </h2>
-              </div>
-              {imageUrl && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      if (imageUrl) {
-                        analyzeImageViaAI(imageUrl, "image/jpeg");
-                      }
-                    }}
-                    disabled={analyzingImage}
-                    className="text-xs flex items-center gap-1 text-violet-400 hover:text-violet-300 transition-colors bg-violet-950/40 border border-violet-800/40 px-2 py-1 rounded-lg"
-                    title="Pindai ulang gambar dengan AI"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${analyzingImage ? "animate-spin" : ""}`} />
-                    Pindai Ulang
-                  </button>
-                  <button
-                    onClick={handleClearImage}
-                    className="text-xs flex items-center gap-1 text-slate-400 hover:text-rose-400 transition-colors bg-slate-900 border border-slate-800 px-2 py-1 rounded-lg"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Hapus
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* QUICK PRESET TEMPLATES BAR */}
-            <div className="mb-4 bg-[#08090f] p-2.5 rounded-xl border border-slate-850">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 font-mono flex items-center gap-1.5">
-                  <Sparkles className="w-3 h-3 text-pink-400" />
-                  Preset Cepat Produk Populer:
-                </span>
-                <span className="text-[9px] text-slate-500 font-mono">1-Klik Siap Pakai</span>
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {PRODUCT_TEMPLATES.map((tmpl) => {
-                  const isSelected = currentTemplateId === tmpl.id;
-                  return (
-                    <button
-                      key={tmpl.id}
-                      onClick={() => handleSelectTemplate(tmpl)}
-                      className={`text-left p-2 rounded-lg border transition-all text-xs flex flex-col justify-between ${
-                        isSelected
-                          ? "bg-violet-950/60 border-violet-500 text-violet-200 shadow-md shadow-violet-500/10"
-                          : "bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-850 hover:border-slate-700"
-                      }`}
-                    >
-                      <span className="font-bold text-[11px] truncate block">{tmpl.name}</span>
-                      <span className="text-[9px] text-slate-400 truncate block mt-0.5">{tmpl.category}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* FOTO/VISUAL PRODUCT COMPONENT */}
             <div className="space-y-4">
               <label className="text-[11px] uppercase tracking-wider text-slate-400 font-mono font-bold block">
@@ -2202,63 +2084,32 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 <p className="text-[10px] text-slate-500 border-t border-amber-500/15 pt-2">💡 Prompt yang digenerate bakal nandain bahan mana dipasang di scene mana. 1 video = 1 produk.</p>
               </div>
 
-              {/* INPUT NAMA & TIPE PRODUK */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] uppercase tracking-wider text-slate-400 font-mono font-bold block">
-                  Nama & Tipe Produk
-                </label>
-                <input
-                  type="text"
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  placeholder="Misal: blazer warna coral"
-                  className="w-full bg-[#08090f] border border-slate-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-600 text-sm font-medium transition-all"
-                />
-              </div>
-
-              {/* AUTOMATION DETAILS OUTPUTS */}
-              <div className="space-y-3 pt-2">
-                
-                {/* Target Audience */}
-                <div className="bg-[#08090f]/90 border border-slate-800/80 rounded-xl p-4">
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-500/30 uppercase tracking-wider">
-                      Target Audience (Terdeteksi AI):
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 leading-relaxed font-medium">
-                    {targetAudience || "Silakan unggah foto produk atau pilih preset untuk mendeteksi target audiens otomatis."}
-                  </p>
+              {/* INPUT NAMA & FITUR PRODUK */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wider text-slate-400 font-mono font-bold block">
+                    Nama &amp; Tipe Produk
+                  </label>
+                  <input
+                    type="text"
+                    value={productName}
+                    onChange={(e) => setProductName(e.target.value)}
+                    placeholder="Misal: Glad2Glow Tone Up Cream"
+                    className="w-full bg-[#08090f] border border-slate-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-600 text-sm font-medium transition-all"
+                  />
                 </div>
-
-                {/* Features & Materials */}
-                <div className="bg-[#08090f]/90 border border-slate-800/80 rounded-xl p-4">
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-950 text-amber-400 border border-amber-500/30 uppercase tracking-wider">
-                      Fitur & Bahan (Terdeteksi AI):
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 leading-relaxed font-medium">
-                    {keyFeatures || "Karakteristik visual, tekstur kain, keunikan, dan pola produk akan ditampilkan di sini."}
-                  </p>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wider text-slate-400 font-mono font-bold block">
+                    Fitur Utama <span className="text-slate-600 normal-case">(opsional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={keyFeatures}
+                    onChange={(e) => setKeyFeatures(e.target.value)}
+                    placeholder="Misal: glowing instan, ringan, BPOM"
+                    className="w-full bg-[#08090f] border border-slate-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-600 text-sm font-medium transition-all"
+                  />
                 </div>
-
-                {/* Colors detected tags */}
-                {colorsDetected.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 font-mono">Warna Visual:</span>
-                    {colorsDetected.map((col, idx) => (
-                      <span
-                        key={idx}
-                        className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5"
-                      >
-                        <span className="w-2 h-2 rounded-full bg-violet-500" />
-                        {col}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
               </div>
 
             </div>
@@ -2267,8 +2118,8 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
 
         </section>
 
-        {/* MIDDLE & RIGHT WORKSPACE (lg:col-span-7) */}
-        <section className="lg:col-span-7 flex flex-col gap-6" id="blueprint-builder-panel">
+        {/* WORKSPACE (full width) */}
+        <section className="lg:col-span-12 flex flex-col gap-6" id="blueprint-builder-panel">
           
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
             
@@ -2967,9 +2818,9 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                     Unduh JSON
                   </button>
                   <button
-                    onClick={() => { copySingleVideoPrompt(); setIsFlowVeoModalOpen(true); }}
+                    onClick={copySingleVideoPrompt}
                     className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:opacity-90 text-white px-4 py-2 rounded-xl font-mono font-bold transition-all shadow-md shadow-emerald-500/20 active:scale-95"
-                    title="1 prompt gabungan -> 1 video utuh 10 detik (bukan 3 video per scene)"
+                    title="Salin prompt 1 video utuh + buka antrean stok"
                   >
                     <Video className="w-3.5 h-3.5" />
                     SALIN PROMPT 1 VIDEO
@@ -3018,151 +2869,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
 
       </main>
 
-      {/* EXPLANATORY PLATFORM OVERVIEW SECTION */}
-      <footer className="max-w-[1500px] mx-auto mt-8 bg-[#10111a]/85 border border-slate-800/80 rounded-2xl p-5 sm:p-6 shadow-2xl relative overflow-hidden" id="footer-section">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5 pb-4 border-b border-slate-800/60">
-          <div>
-            <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-white flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-amber-400" />
-              CARA KERJA ALUR KERJA POS VIDEO AI
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              3 Langkah otomatis mengubah foto produk biasa menjadi video promosi convert-tinggi.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-            <button
-              onClick={() => {
-                setCurrentGuideStep(6);
-                setIsGuideModalOpen(true);
-              }}
-              className="px-3.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 text-xs font-mono font-bold transition-all flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5 fill-red-400" />
-              <span>Tonton Video Panduan</span>
-            </button>
-            <button
-              onClick={() => {
-                setCurrentGuideStep(0);
-                setIsGuideModalOpen(true);
-              }}
-              className="px-4 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold transition-all flex items-center gap-2 shadow-sm active:scale-95 shrink-0 cursor-pointer"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-              <span>Buka Panduan Lengkap</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-slate-300">
-          
-          <div className="space-y-2 bg-[#0a0b12]/50 p-4 rounded-xl border border-slate-850">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-pink-500/20 text-pink-400 border border-pink-500/30">
-                <Zap className="w-4 h-4" />
-              </div>
-              <h4 className="text-xs font-bold font-display text-white uppercase tracking-wider font-mono">
-                1. Analisis AI Vision Instan
-              </h4>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Cukup seret & unggah foto produk Anda. AI akan membedah karakteristik warna, gaya desain, kain, serta target demografis paling akurat secara instan untuk melandasi blueprint video.
-            </p>
-          </div>
-
-          <div className="space-y-2 bg-[#0a0b12]/50 p-4 rounded-xl border border-slate-850">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-violet-500/20 text-violet-400 border border-violet-500/30">
-                <Sparkle className="w-4 h-4" />
-              </div>
-              <h4 className="text-xs font-bold font-display text-white uppercase tracking-wider font-mono">
-                2. Naskah Promosi Berkonversi
-              </h4>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Ubah rincian produk menjadi draf naskah suara yang memicu hasrat berbelanja dengan AI. Anda dapat mengatur kepribadian tulisan, seperti bahasa gaul TikTok atau gaya edukatif kasual.
-            </p>
-          </div>
-
-          <div className="space-y-2 bg-[#0a0b12]/50 p-4 rounded-xl border border-slate-850">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                <Layers className="w-4 h-4" />
-              </div>
-              <h4 className="text-xs font-bold font-display text-white uppercase tracking-wider font-mono">
-                3. Blueprint Siap Pakai
-              </h4>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Ekspor struktur video ~12 detik lengkap dengan naskah per scene, audio cue, teks overlay berukuran besar, rekomendasi aksi affiliate, serta deskripsi prompt visual untuk di-generate di Veo / Flow.
-            </p>
-          </div>
-
-        </div>
-
-        {/* Video Tutorial Integration in Footer Guide */}
-        <div className="mt-6 p-4 sm:p-5 bg-gradient-to-r from-red-950/30 via-[#0a0b12] to-amber-950/20 border border-red-500/25 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-start gap-3.5">
-            <div className="p-3 bg-red-600/20 border border-red-500/35 rounded-xl text-red-400 shrink-0">
-              <Play className="w-5 h-5 fill-red-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider font-mono text-white">
-                  Video Panduan Tutorial Resmi
-                </h4>
-                <span className="text-[9px] bg-red-600 text-white font-mono font-bold px-1.5 py-0.5 rounded">
-                  YOUTUBE
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Pelajari tutorial langkah demi langkah cara membuat video promosi produk affiliate secara visual di YouTube (https://youtu.be/YIx556qhW38).
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
-            <a
-              href="https://youtu.be/YIx556qhW38"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3.5 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-mono font-bold flex items-center gap-1.5 transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>Buka di YouTube</span>
-            </a>
-            <button
-              onClick={() => {
-                setCurrentGuideStep(6);
-                setIsGuideModalOpen(true);
-              }}
-              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-mono font-bold flex items-center gap-2 shadow-lg shadow-red-600/20 active:scale-95 transition-all cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5 fill-white" />
-              <span>Putar Video Sekarang</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-6 pt-4 border-t border-slate-800/60 text-center flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div 
-            className="text-[11px] text-slate-500 font-mono flex flex-wrap items-center justify-center sm:justify-start gap-1"
-            dangerouslySetInnerHTML={{ __html: footerHtml }}
-          />
-          <div className="flex items-center gap-4 text-xs font-mono">
-            {referralUrl && (
-              <a href={referralUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 transition-colors">
-                Rujukan Resmi
-              </a>
-            )}
-            <span className="text-slate-600">|</span>
-            <a href="#app-container" className="text-slate-400 hover:text-white transition-colors">Kembali Ke Atas</a>
-            <span className="text-slate-600">|</span>
-            <span className="text-slate-500">v1.4.0 Live Engine</span>
-          </div>
-        </div>
-
-      </footer>
       </>)}
 
       {/* AI Voice Over Generator Modal */}
@@ -4254,7 +3960,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 {/* Catatan jujur cara kerja */}
                 <p className="text-[10px] text-slate-500 leading-relaxed flex items-start gap-1.5 bg-[#10111a]/60 border border-slate-850 rounded-lg px-3 py-2">
                   <Info className="w-3.5 h-3.5 text-amber-500/70 mt-0.5 shrink-0" />
-                  <span>Robot nge-batch bagian yang berat: <b className="text-slate-300">naskah suara + blueprint + prompt "1 Video"</b> buat tiap produk. Render 10 detiknya tetap di Google Flow/Veo (tempel prompt-nya). Jadi lu dapet <b className="text-slate-300">stok prompt siap-tempel</b> sekali duduk, tinggal distribusi.</span>
+                  <span>Robot nge-batch bagian yang berat: <b className="text-slate-300">naskah suara + blueprint + prompt "1 Video"</b> buat tiap produk. Render videonya tetap di Google Flow/Veo (tempel prompt + attach 3 bahan). Jadi lu dapet <b className="text-slate-300">stok prompt siap-tempel</b> sekali duduk, tinggal distribusi.</span>
                 </p>
 
                 {/* Form tambah ke antrean */}

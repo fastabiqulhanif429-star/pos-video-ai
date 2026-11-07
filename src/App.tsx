@@ -4368,7 +4368,8 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
           const has = !!bankMaterialMeta(slot);
           const isUp = uploadingSlot === slot;
           const isLast = wizardStep === steps.length - 1;
-          const finish = () => { setWizardOpen(false); showNotification("Materi siap! Buka Google Flow → tempel prompt → upload materi tiap scene. 🎬", "success"); };
+          const openFlow = () => { try { window.open("https://labs.google/fx/tools/flow", "_blank", "noopener,noreferrer"); } catch (e) {} };
+          const finish = () => { setWizardOpen(false); openFlow(); showNotification("Google Flow kebuka! Tempel prompt (udah di clipboard) + upload materi tiap scene. 🎬", "success"); };
           const advance = () => { if (isLast) finish(); else { setWizardStep(wizardStep + 1); setWizardLink(""); } };
           // "Yakin pakai ini": kalau ada materi → download ke laptop dulu, baru lanjut
           const next = () => { if (has) downloadMaterial(slot); advance(); };
@@ -4458,11 +4459,14 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                     )}
                   </div>
                   <div className="flex gap-2">
+                    <button onClick={openFlow} className="text-[11px] font-mono font-bold text-emerald-300 bg-emerald-950/40 border border-emerald-500/40 hover:bg-emerald-900/40 px-3 py-2 rounded-lg transition-all active:scale-95 flex items-center gap-1.5" title="Buka Google Flow (Veo) di tab baru">
+                      <ExternalLink className="w-3.5 h-3.5" /> Buka Flow
+                    </button>
                     {s.canSkip && (
                       <button onClick={skip} className="text-[11px] font-mono font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg transition-all">Skip</button>
                     )}
                     <button onClick={next} className="text-[11px] font-mono font-bold text-white bg-gradient-to-r from-pink-500 to-violet-600 hover:from-pink-400 hover:to-violet-500 px-4 py-2 rounded-lg shadow-lg transition-all active:scale-95 flex items-center gap-1.5">
-                      {has ? "Yakin, pakai ini" : (isLast ? "Selesai" : "Lanjut")} {isLast ? <Check className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
+                      {has ? "Yakin, pakai ini" : (isLast ? "Selesai & buka Flow" : "Lanjut")} {isLast ? <ExternalLink className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>

@@ -203,7 +203,7 @@ export default function App() {
   // Durasi video (detik) — bisa di-custom
   const [videoDuration, setVideoDuration] = useState<number>(() => {
     const d = parseInt(safeStorage.getItem("affos_duration") || "", 10);
-    return d >= 5 && d <= 60 ? d : 12;
+    return d >= 5 && d <= 15 ? d : 12;
   });
 
   // ===== BANK PRODUK: simpan produk + materinya (2 foto + 1 video) di IndexedDB =====
@@ -245,6 +245,9 @@ export default function App() {
   const [generatingNarrative, setGeneratingNarrative] = useState<boolean>(false);
   const [generatingBlueprint, setGeneratingBlueprint] = useState<boolean>(false);
   const [loadingMsgIdx, setLoadingMsgIdx] = useState<number>(0);
+  // Visual prompt versi Bahasa Indonesia per scene (edit → Enter → translate ke Inggris)
+  const [sceneIdText, setSceneIdText] = useState<Record<string, string>>({});
+  const [translatingScene, setTranslatingScene] = useState<string | null>(null);
   // Pesan+emote lucu yang muter pas blueprint lagi diproses
   const BLUEPRINT_LOADING = [
     { e: "🤖", t: "Robot lagi baca produk & naskah kamu..." },
@@ -633,6 +636,30 @@ export default function App() {
     });
   };
 
+  // Terjemahin visual prompt dari Bahasa Indonesia → Inggris (sinematik) lalu update scene-nya
+  const translateSceneIdToEn = async (sceneId: string) => {
+    const idText = (sceneIdText[sceneId] || "").trim();
+    if (!idText) { showNotification("Tulis dulu versi Bahasa Indonesianya ya.", "info"); return; }
+    setTranslatingScene(sceneId);
+    showNotification("Nerjemahin ke Inggris sinematik...", "info");
+    try {
+      const resp = await fetch("/api/translate-prompt", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: idText }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || "Gagal translate");
+      if (data.english) {
+        updateSceneField(sceneId, "visualPrompt", data.english);
+        showNotification("Visual prompt (versi Inggris) ke-update! 🌐", "success");
+      }
+    } catch (e: any) {
+      showNotification(e?.message || "Gagal nerjemahin.", "error");
+    } finally {
+      setTranslatingScene(null);
+    }
+  };
+
   // Sync draft voice over segments to the 3 scenes
   const syncVoiceOverToScenes = () => {
     if (!draftVoiceOver.trim() || blueprint.scenes.length === 0) {
@@ -845,6 +872,7 @@ export default function App() {
     showNotification("Semua prompt visual berhasil disalin! 📋", "success");
   };
 
+
   // Gabungkan 3 scene -> 1 prompt single-shot (1 prompt = 1 video utuh 10 detik, bukan per-scene)
   const buildSingleVideoPrompt = (): string => {
     return buildSingleVideoPromptFrom({
@@ -863,9 +891,9 @@ export default function App() {
     }
     const singlePrompt = buildSingleVideoPrompt();
     navigator.clipboard.writeText(singlePrompt);
-    showNotification("Prompt 1 Video disalin! Tempel di Flow/Veo + attach 3 bahan. 🎬", "success");
+    showNotification("Prompt 1 Video disalin! Google Flow kebuka — tempel (Cmd+V) & generate. 🎬", "success");
 
-    // Masukin video ini ke STOK antrean (kalau belum ada) biar kekumpul, lalu buka popup antrean
+    // Masukin video ini ke STOK antrean (kalau belum ada) biar kekumpul
     const pName = productName || "Produk";
     setQueueItems((prev) => {
       const exists = prev.some((q) => q.result?.singlePrompt === singlePrompt);
@@ -880,9 +908,10 @@ export default function App() {
       try { safeStorage.setItem("affos_queue", JSON.stringify(next)); } catch (e) {}
       return next;
     });
-    // Buka WIZARD MATERI (hook → tengah → CTA) buat disiapin sebelum ke Flow
-    openMaterialWizard();
+    openGoogleFlow();
   };
+
+  const openGoogleFlow = () => { try { window.open("https://labs.google/fx/tools/flow", "_blank", "noopener,noreferrer"); } catch (e) {} };
 
   // Versi MURNI buildSingleVideoPrompt — dari data item (buat Antrean/batch, gak gantung state editor)
   // Struktur 3-bahan: Foto Statis 1 (hook) → Video Asli Pendek (B-roll demo) → Foto Statis 2 (CTA). 1 produk/video.
@@ -900,16 +929,12 @@ export default function App() {
     const beats = scenes
       .map(
         (s) =>
-          `• ${s.timestamp} [${s.materialType || "bahan"}] — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`
+          `• ${s.timestamp} — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`
       )
       .join("\n");
     return `Create ONE short continuous vertical 9:16 photorealistic affiliate video (~${dur} seconds) about ONE product only: ${pName}.
-This single video is ASSEMBLED from 3 materials for this one product — when generating in Flow/Veo, attach these materials:
-  1) a clear STATIC product photo (used for the hook / first 3s),
-  2) a short REAL B-ROLL clip of the product actually being used — applied to skin / poured / swatched / unboxed (used for the middle 3-8s),
-  3) a second STATIC product/packaging photo, e.g. BPOM/rating/claim (used for the CTA / last 3s).
 Keep the product ${pName} identical and clearly visible — same packaging, label, colors and shape; do NOT substitute or invent a different product. ONE product per video, do not mix other products.
-IMPORTANT: output must be ONE seamless ~${dur}s video from start to finish — do NOT generate separate clips, do NOT generate an image per scene. It is a single continuous take that smoothly transitions through three beats (each beat notes which material it uses):
+IMPORTANT: output must be ONE seamless ~${dur}s video from start to finish — a single continuous take that smoothly transitions through three beats:
 ${beats}
 Keep the SAME creator identity (if a person appears), lighting mood and visual style across the whole video. Overall aesthetic: ${item.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous ~${dur}-second video, 9:16 vertical, photorealistic 8k, smooth motion.`;
   };
@@ -2422,13 +2447,11 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                   <span className="text-[10px] text-slate-600 leading-relaxed">Belum ada produk. Isi nama + fitur di bawah → <b className="text-slate-500">Simpan ke Bank</b>, lalu upload materinya.</span>
                 )}
                 {bankProducts.map((p) => {
-                  const filled = (["foto1", "video", "foto2"] as const).filter((s) => p.materials[s]).length;
                   const sel = selectedBankId === p.id;
                   return (
                     <div key={p.id} className={`flex items-center rounded-lg border text-[11px] transition-all ${sel ? "bg-amber-950/40 border-amber-500/50" : "bg-slate-900/60 border-slate-800 hover:border-slate-700"}`}>
-                      <button onClick={() => selectBankProduct(p)} className="pl-2.5 pr-1.5 py-1.5 font-bold font-mono flex items-center gap-1.5">
+                      <button onClick={() => selectBankProduct(p)} className="pl-2.5 pr-2 py-1.5 font-bold font-mono flex items-center gap-1.5">
                         <span className={sel ? "text-amber-200" : "text-slate-300"}>{p.name}</span>
-                        <span className={`text-[8px] px-1 py-0.5 rounded font-bold ${filled === 3 ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"}`}>{filled === 3 ? "✓ lengkap" : `${filled}/3`}</span>
                       </button>
                       <button onClick={() => removeBankProduct(p.id)} className="px-1.5 py-1.5 text-slate-600 hover:text-rose-400 transition-all" title="hapus produk"><X className="w-3 h-3" /></button>
                     </div>
@@ -2494,7 +2517,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 >
                   <Save className="w-3.5 h-3.5" /> {selectedBankId ? "Update produk" : "Simpan ke Bank"}
                 </button>
-                <span className="text-[10px] text-slate-600">Materi (foto/video) bakal diminta <b className="text-slate-500">pas kamu salin prompt</b> (wizard) — biar sesuai produk aslinya.</span>
+                <span className="text-[10px] text-slate-600">Simpan produk biar gampang dipilih lagi nanti (nama + fitur).</span>
               </div>
 
             </div>
@@ -2835,7 +2858,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 <Clock className="w-3 h-3 text-violet-400" /> Durasi video
               </span>
               <div className="flex items-center gap-1.5 flex-wrap">
-                {[10, 12, 15, 20, 30].map((d) => (
+                {[10, 12, 15].map((d) => (
                   <button
                     key={d}
                     onClick={() => setVideoDuration(d)}
@@ -2848,11 +2871,11 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                   <input
                     type="number"
                     min={5}
-                    max={60}
+                    max={15}
                     value={videoDuration}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);
-                      if (!isNaN(v)) setVideoDuration(Math.max(5, Math.min(60, v)));
+                      if (!isNaN(v)) setVideoDuration(Math.max(5, Math.min(15, v)));
                     }}
                     className="w-10 bg-transparent text-[11px] text-slate-100 font-mono font-bold py-1 outline-none text-center"
                   />
@@ -2941,7 +2964,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 <Sparkle className="w-8 h-8 text-violet-400/40 mb-3 animate-pulse" />
                 <p className="text-xs font-bold text-slate-300">Belum ada Blueprint visual yang dibuat</p>
                 <p className="text-[10px] text-slate-500 max-w-sm mt-1 leading-normal">
-                  Isi nama produk (atau pilih preset / lewat Riset Produk) & naskah suara, lalu klik <span className="text-pink-400 font-bold">"BUAT SKRIP VISUAL (JSON)"</span> untuk men-generate otomatis skenario video ~{videoDuration} detik (3 bahan: foto, video asli, foto).
+                  Isi nama produk (atau pilih preset / lewat Riset Produk) & naskah suara, lalu klik <span className="text-pink-400 font-bold">"BUAT SKRIP VISUAL (JSON)"</span> untuk men-generate otomatis skenario video ~{videoDuration} detik.
                 </p>
               </div>
             ) : (
@@ -2973,12 +2996,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                           </span>
                         </div>
 
-                        {/* Bahan yang dipakai scene ini */}
-                        {scene.materialType && (
-                          <span className="inline-block mt-1.5 text-[8px] font-bold font-mono px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-700/60 text-slate-300">
-                            {scene.materialType.startsWith("Video") ? "🎥 " : "📸 "}{scene.materialType.replace(/\s*\(.*\)/, "")}
-                          </span>
-                        )}
 
                         {/* Short text overlay preview */}
                         <p className="text-[11px] font-extrabold text-slate-200 mt-2 line-clamp-1">
@@ -3068,6 +3085,32 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                           {selectedSceneData.visualPrompt}
                         </div>
                       )}
+
+                      {/* Versi Bahasa Indonesia → Enter buat translate ke Inggris di atas */}
+                      <div className="bg-[#0b0c15] border border-cyan-500/20 rounded-lg p-2.5 space-y-1">
+                        <label className="text-[9px] uppercase tracking-wider text-cyan-300 font-mono font-bold flex items-center gap-1.5">
+                          <Globe className="w-3 h-3" /> Versi Bahasa Indonesia (edit → Enter buat update yang Inggris)
+                        </label>
+                        <div className="flex gap-2 items-end">
+                          <textarea
+                            value={sceneIdText[selectedSceneData.sceneId] ?? ""}
+                            onChange={(e) => setSceneIdText((prev) => ({ ...prev, [selectedSceneData.sceneId]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (translatingScene !== selectedSceneData.sceneId) translateSceneIdToEn(selectedSceneData.sceneId); } }}
+                            rows={2}
+                            placeholder="Tulis deskripsi visual pakai Bahasa Indonesia, lalu tekan Enter..."
+                            className="flex-1 min-w-0 bg-[#08090f] border border-slate-800 focus:border-cyan-500/60 rounded-lg p-2.5 text-[11px] text-slate-200 placeholder:text-slate-600 outline-none resize-y leading-relaxed"
+                          />
+                          <button
+                            onClick={() => translateSceneIdToEn(selectedSceneData.sceneId)}
+                            disabled={translatingScene === selectedSceneData.sceneId}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600/80 hover:bg-cyan-500 text-white text-[11px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0"
+                            title="Terjemahin ke Inggris & update prompt di atas"
+                          >
+                            {translatingScene === selectedSceneData.sceneId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                            Translate
+                          </button>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3229,29 +3272,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                     <Video className="w-3.5 h-3.5" />
                     SALIN PROMPT 1 VIDEO
                   </button>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(getCompiledJsonString());
-                      setCopiedJson(true);
-                      setTimeout(() => setCopiedJson(false), 2000);
-                      showNotification("Berhasil Disalin ke Clipboard! 📋", "success");
-                      setIsFlowVeoModalOpen(true);
-                    }}
-                    className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1.5 bg-gradient-to-r from-pink-600 to-violet-600 hover:from-pink-500 hover:to-violet-500 text-white px-4 py-2 rounded-xl font-mono font-bold transition-all shadow-md active:scale-95"
-                    title="Script JSON per scene (tiap scene bisa jadi klip terpisah)"
-                  >
-                    {copiedJson ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-200 animate-pulse" />
-                        Berhasil Disalin!
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        SALIN JSON (PER SCENE)
-                      </>
-                    )}
-                  </button>
                 </div>
               </div>
 
@@ -3264,7 +3284,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 </div>
               </div>
               <p className="text-[10px] text-slate-500 leading-normal mt-2.5">
-                💡 <b className="text-emerald-400">Mau 1 video utuh?</b> Pakai <b className="text-slate-300">"SALIN PROMPT 1 VIDEO"</b> — 1 prompt gabungan jadi 1 video ~{videoDuration} detik. Kalau pakai JSON per scene, tiap scene bisa ke-generate jadi klip terpisah (3 video). Tempel di Google Flow / Veo bareng 3 bahan (2 foto + 1 video asli).
+                💡 Pakai <b className="text-slate-300">"SALIN PROMPT 1 VIDEO"</b> — 1 prompt jadi 1 video ~{videoDuration} detik. Google Flow kebuka otomatis, tinggal tempel (Cmd+V) & generate. Max 15 detik; kalau mau lebih panjang, bikin video kedua terpisah.
               </p>
             </div>
           )}
@@ -4352,128 +4372,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
             </motion.div>
           </div>
         )}
-      </AnimatePresence>
-
-      {/* MODAL: WIZARD MATERI (setelah salin prompt) */}
-      <AnimatePresence>
-        {wizardOpen && (() => {
-          const steps = [
-            { key: "foto1" as const, icon: "📸", title: "Foto produk CLEAR (HOOK)", sub: "3 detik pertama — penahan mata", accept: "image/*", canSkip: false },
-            { key: "video" as const, icon: "🎥", title: "Video produk DIPAKAI (TENGAH)", sub: "produk dioles / dipakai / unboxing", accept: "video/*", canSkip: true },
-            { key: "foto2" as const, icon: "📸", title: "Foto kemasan/BPOM (CTA)", sub: "ajakan klik di akhir video", accept: "image/*", canSkip: true },
-          ];
-          const s = steps[wizardStep] || steps[0];
-          const slot = s.key;
-          const url = materialUrls[slot];
-          const has = !!bankMaterialMeta(slot);
-          const isUp = uploadingSlot === slot;
-          const isLast = wizardStep === steps.length - 1;
-          const openFlow = () => { try { window.open("https://labs.google/fx/tools/flow", "_blank", "noopener,noreferrer"); } catch (e) {} };
-          const finish = () => { setWizardOpen(false); openFlow(); showNotification("Google Flow kebuka! Tempel prompt (udah di clipboard) + upload materi tiap scene. 🎬", "success"); };
-          const advance = () => { if (isLast) finish(); else { setWizardStep(wizardStep + 1); setWizardLink(""); } };
-          // "Yakin pakai ini": kalau ada materi → download ke laptop dulu, baru lanjut
-          const next = () => { if (has) downloadMaterial(slot); advance(); };
-          const skip = () => advance();
-          return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="wizard-modal">
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
-              >
-                {/* Header */}
-                <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 bg-gradient-to-br from-pink-500 to-violet-600 rounded-lg text-white shadow-lg"><Video className="w-5 h-5 text-white" /></div>
-                    <div>
-                      <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-100">Siapin Materi buat Flow</h3>
-                      <p className="text-[10px] text-slate-400">Prompt udah kesalin. Cek materi tiap scene buat produk <b className="text-slate-300">{productName || "ini"}</b>.</p>
-                    </div>
-                  </div>
-                  <button onClick={() => setWizardOpen(false)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all"><X className="w-4 h-4" /></button>
-                </div>
-
-                {/* Step dots */}
-                <div className="flex items-center justify-center gap-2 py-3 bg-[#0b0c15] shrink-0">
-                  {steps.map((st, i) => (
-                    <div key={i} className={`flex items-center gap-1.5 ${i === wizardStep ? "" : "opacity-50"}`}>
-                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold font-mono ${i < wizardStep ? "bg-emerald-500 text-slate-950" : i === wizardStep ? "bg-violet-600 text-white" : "bg-slate-800 text-slate-400"}`}>{i < wizardStep ? "✓" : i + 1}</span>
-                      {i < steps.length - 1 && <span className="w-5 h-px bg-slate-700" />}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Body */}
-                <div className="p-5 overflow-y-auto flex-1 scrollbar-thin space-y-3">
-                  <div className="text-center">
-                    <div className="text-3xl mb-1">{s.icon}</div>
-                    <h4 className="text-base font-extrabold text-white">{s.title}</h4>
-                    <p className="text-[11px] text-slate-400">{s.sub}</p>
-                  </div>
-
-                  {/* Preview / upload zone */}
-                  <label className="cursor-pointer block rounded-xl overflow-hidden border-2 border-dashed border-slate-700 bg-[#08090f]/60 min-h-[180px] flex items-center justify-center hover:border-violet-500/50 transition-all">
-                    <input type="file" accept={s.accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMaterial(slot, f); e.currentTarget.value = ""; }} />
-                    {isUp ? (
-                      <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
-                    ) : url ? (
-                      slot === "video"
-                        ? <video src={url} className="max-h-[220px] rounded-lg" controls muted playsInline />
-                        : <img src={url} alt={s.title} className="max-h-[220px] rounded-lg object-contain" />
-                    ) : (
-                      <span className="text-xs text-slate-500 text-center px-4 flex flex-col items-center gap-2 py-8"><Upload className="w-6 h-6" />Klik buat upload {slot === "video" ? "video" : "foto"} dari HP/laptop</span>
-                    )}
-                  </label>
-
-                  {/* atau tempel link */}
-                  <div className="flex gap-2">
-                    <input
-                      type="text" value={wizardLink}
-                      onChange={(e) => setWizardLink(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter" && !importing) importToSlot(slot, wizardLink); }}
-                      placeholder={`atau tempel link ${slot === "video" ? "video" : "gambar"} (dari Shopee: klik kanan → Salin alamat)`}
-                      className="flex-1 min-w-0 bg-[#0b0c15] border border-slate-800 focus:border-cyan-500/60 rounded-lg px-3 py-2 text-[11px] text-slate-100 placeholder:text-slate-600 outline-none"
-                    />
-                    <button onClick={() => importToSlot(slot, wizardLink)} disabled={importing} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600/80 hover:bg-cyan-500 text-white text-[11px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0">
-                      {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Ambil
-                    </button>
-                  </div>
-
-                  <div className="text-center">
-                    {has
-                      ? <span className="text-[11px] font-mono text-emerald-400">✅ Materi buat scene ini udah siap</span>
-                      : <span className="text-[11px] font-mono text-slate-500">Belum ada materi{s.canSkip ? " — boleh di-skip, siapin nanti di Flow" : ""}</span>}
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div className="px-5 py-4 border-t border-slate-800/60 bg-slate-950/30 flex items-center justify-between gap-2 shrink-0">
-                  <div className="flex gap-2">
-                    {wizardStep > 0 && (
-                      <button onClick={() => { setWizardStep(wizardStep - 1); setWizardLink(""); }} className="text-[11px] font-mono font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-3 py-2 rounded-lg transition-all">← Balik</button>
-                    )}
-                    {has && (
-                      <label className="cursor-pointer text-[11px] font-mono font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-3 py-2 rounded-lg transition-all flex items-center gap-1.5">
-                        <input type="file" accept={s.accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMaterial(slot, f); e.currentTarget.value = ""; }} />
-                        <RefreshCw className="w-3 h-3" /> Ganti
-                      </label>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={openFlow} className="text-[11px] font-mono font-bold text-emerald-300 bg-emerald-950/40 border border-emerald-500/40 hover:bg-emerald-900/40 px-3 py-2 rounded-lg transition-all active:scale-95 flex items-center gap-1.5" title="Buka Google Flow (Veo) di tab baru">
-                      <ExternalLink className="w-3.5 h-3.5" /> Buka Flow
-                    </button>
-                    {s.canSkip && (
-                      <button onClick={skip} className="text-[11px] font-mono font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg transition-all">Skip</button>
-                    )}
-                    <button onClick={next} className="text-[11px] font-mono font-bold text-white bg-gradient-to-r from-pink-500 to-violet-600 hover:from-pink-400 hover:to-violet-500 px-4 py-2 rounded-lg shadow-lg transition-all active:scale-95 flex items-center gap-1.5">
-                      {has ? "Yakin, pakai ini" : (isLast ? "Selesai & buka Flow" : "Lanjut")} {isLast ? <ExternalLink className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          );
-        })()}
       </AnimatePresence>
 
       {/* MODAL: ANTREAN / BATCH QUEUE */}

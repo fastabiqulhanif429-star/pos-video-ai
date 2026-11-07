@@ -247,7 +247,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
     // supaya instruksi ke Flow/Veo memaksa produk sesuai foto referensi. Jangan pernah inline base64 ke prompt.
     const hasImage = !!hasImageFlag || (typeof imageUrl === "string" && imageUrl.length > 0);
     // Durasi custom (detik). Breakpoint 3 scene: HOOK ~25%, B-ROLL ~42%, CTA ~33%.
-    const dur = Number(duration) >= 5 && Number(duration) <= 60 ? Math.round(Number(duration)) : 12;
+    const dur = Number(duration) >= 5 && Number(duration) <= 15 ? Math.round(Number(duration)) : 12;
     const b1 = Math.max(1, Math.round(dur * 0.25));
     const b2 = Math.max(b1 + 1, Math.round(dur * 0.67));
     const fmt = (n: number) => n.toFixed(1) + "s";
@@ -350,7 +350,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
     const voiceOverText = req.body.voiceOverText || "Sumpah ini racun banget! Desainnya cakep parah dan harganya ramah di kantong. Buruan checkout!";
     const mainTextStyle = req.body.mainTextStyle || "Sketch";
     const isMale = req.body.voiceGender === "male";
-    const durFb = Number(req.body.duration) >= 5 && Number(req.body.duration) <= 60 ? Math.round(Number(req.body.duration)) : 12;
+    const durFb = Number(req.body.duration) >= 5 && Number(req.body.duration) <= 15 ? Math.round(Number(req.body.duration)) : 12;
     const fb1 = Math.max(1, Math.round(durFb * 0.25));
     const fb2 = Math.max(fb1 + 1, Math.round(durFb * 0.67));
     const ts = (a: number, b: number) => `${a.toFixed(1)}s - ${b.toFixed(1)}s`;
@@ -846,6 +846,29 @@ function extractSlugText(input: string): string {
 }
 
 // Endpoint 9: Klasifikasi produk — dari teks deskripsi ATAU link produk Shopee (ambil nama dari slug URL).
+// Endpoint 10: Translate visual prompt Bahasa Indonesia → English sinematik (buat Veo/Flow).
+app.post("/api/translate-prompt", async (req, res) => {
+  try {
+    const text = (req.body?.text || "").toString().trim().slice(0, 2000);
+    if (!text) return res.status(400).json({ error: "Teks kosong." });
+    const prompt = `
+      Terjemahkan deskripsi visual video berikut (Bahasa Indonesia) menjadi SATU visual prompt dalam BAHASA INGGRIS yang sinematik & siap dipakai di video generator (Veo/Flow/Kling).
+      Gaya: deskriptif, sinematik (camera, lighting, composition, photorealistic 8k). Pertahankan makna & detail produk. Jangan nambah hal yang tidak disebut. Output HANYA teks prompt-nya (tanpa label/tanda kutip).
+
+      DESKRIPSI (Indonesia):
+      """${text}"""
+    `;
+    const response = await generateWithFallback({ contents: prompt, config: {} });
+    const english = (response.text || "").toString().trim().replace(/^["']|["']$/g, "");
+    if (!english) throw new Error("kosong");
+    return res.json({ english });
+  } catch (error: any) {
+    console.warn("Error translate-prompt:", error?.message || error);
+    // Fallback: balikin teks asli (user bisa translate manual)
+    return res.json({ english: (req.body?.text || "").toString().trim(), isFallback: true, note: "AI translate lagi sibuk — sementara pakai teks aslinya, edit manual kalau perlu." });
+  }
+});
+
 app.post("/api/classify-product", async (req, res) => {
   try {
     const { text } = req.body;

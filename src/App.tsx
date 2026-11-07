@@ -267,6 +267,19 @@ export default function App() {
     const id = setInterval(() => setLoadingMsgIdx((i) => (i + 1) % BLUEPRINT_LOADING.length), 1800);
     return () => clearInterval(id);
   }, [generatingBlueprint]);
+  // Auto-isi box "Versi Bahasa Indonesia" dari visualPromptID tiap scene (yang belum pernah diedit)
+  useEffect(() => {
+    const scenes = blueprint.scenes || [];
+    if (scenes.length === 0) return;
+    setSceneIdText((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      scenes.forEach((s: any) => {
+        if (next[s.sceneId] === undefined && s.visualPromptID) { next[s.sceneId] = s.visualPromptID; changed = true; }
+      });
+      return changed ? next : prev;
+    });
+  }, [blueprint]);
 
   const [selectedSceneId, setSelectedSceneId] = useState<string>("scene-1");
   const [copiedSceneId, setCopiedSceneId] = useState<string | null>(null);
@@ -2035,6 +2048,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
 
       const result = await response.json();
       if (result.scenes && result.scenes.length > 0) {
+        setSceneIdText({});
         setBlueprint(result);
         setSelectedSceneId(result.scenes[0].sceneId);
         addHistoryItem(productName, imageUrl, targetAudience, keyFeatures, colorsDetected, draftVoiceOver, selectedTone, result);

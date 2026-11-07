@@ -4,6 +4,8 @@ export interface Scene {
   timestamp: string;
   textOverlay: string;
   visualPrompt: string;
+  visualPromptID?: string;
+  materialType?: string;
   audioCue: string;
   voiceOverSegment: string;
   interactiveAction: string;

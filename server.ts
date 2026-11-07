@@ -289,6 +289,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
          * materialType (string, bahan yang dipakai scene ini: "Foto Statis 1 (foto produk clear)" / "Video Asli Pendek (B-roll produk dipakai)" / "Foto Statis 2 (kemasan/klaim/BPOM)")
          * textOverlay (string, teks singkat bombastis Indonesia)
          * visualPrompt (string, deskripsi visual detail Bahasa Inggris; sebut produk konsisten + kreator konsisten)
+         * visualPromptID (string, TERJEMAHAN Bahasa Indonesia yang natural & sama persis maknanya dari visualPrompt di atas — buat ditampilkan ke user yang bisa edit)
          * audioCue (string, e.g. "Swoosh FX")
          * voiceOverSegment (string, potongan voiceOverText sesuai durasi scene)
          * interactiveAction (string, peletakan UI keranjang kuning dll)
@@ -315,6 +316,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
                   materialType: { type: Type.STRING },
                   textOverlay: { type: Type.STRING },
                   visualPrompt: { type: Type.STRING },
+                  visualPromptID: { type: Type.STRING },
                   audioCue: { type: Type.STRING },
                   voiceOverSegment: { type: Type.STRING },
                   interactiveAction: { type: Type.STRING },
@@ -378,6 +380,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
           materialType: "Foto Statis 1 (foto produk clear)",
           textOverlay: isMale ? `RACUN BARU: ${productName.toUpperCase()}! 🔥` : `RACUN TIKTOK: ${productName.toUpperCase()}! 🔥`,
           visualPrompt: `Open on the static clear close-up product photo of ${productName} filling the frame as the hook, slow subtle zoom-in, bold headline text on top. Warm studio background with aesthetic bokeh, soft volumetric lighting, photorealistic 8k, ${accentDesc}. Keep the product packaging, label and colors exactly as the product ${productName} — do not substitute a different product.`,
+          visualPromptID: `Buka dengan foto produk ${productName} close-up yang jelas memenuhi layar sebagai hook, zoom-in halus perlahan, teks headline tebal di atas. Latar studio hangat dengan bokeh estetik, pencahayaan lembut, photorealistic 8k. Pertahankan kemasan, label, dan warna persis seperti produk ${productName} — jangan ganti produk lain.`,
           audioCue: "Fast Swoosh FX + Pop Beat",
           voiceOverSegment: vo1,
           interactiveAction: "Teks headline besar + elemen penunjuk pada produk",
@@ -389,6 +392,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
           timestamp: ts(fb1, fb2),
           materialType: "Video Asli Pendek (B-roll produk dipakai)",
           visualPrompt: `Transition into the real short B-roll footage of ${productName} actually being used — product being applied to skin / poured / swatched / unboxed in real life, close-up macro with real hand movement (not a static photo), showing texture and ${keyFeatures}. Shallow depth of field, clean studio lighting, smooth real motion, photorealistic 8k. Keep it the same product ${productName}.`,
+          visualPromptID: `Transisi ke footage asli pendek ${productName} saat benar-benar dipakai — produk dioleskan ke kulit / dituang / di-swatch / unboxing di kehidupan nyata, close-up macro dengan gerakan tangan nyata (bukan foto statis), memperlihatkan tekstur & ${keyFeatures}. Depth of field tipis, pencahayaan studio bersih, gerakan nyata halus, photorealistic 8k. Tetap produk ${productName} yang sama.`,
           audioCue: "Subtle Bass Drop + Upbeat Music",
           voiceOverSegment: vo2,
           interactiveAction: "Zoom lambat pada tekstur produk saat dipakai",
@@ -401,6 +405,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
           materialType: "Foto Statis 2 (kemasan/klaim/BPOM)",
           textOverlay: `KLIK KERANJANG KUNING DI BAWAH! 👇`,
           visualPrompt: `Cut to the second static product photo of ${productName} showing packaging / BPOM claim / rating badge clearly, with a bold CTA text and an arrow pointing down to the shopping bag / yellow cart. Warm cinematic look, friendly inviting atmosphere, extremely clear detail, photorealistic 8k. Same product ${productName}, do not substitute.`,
+          visualPromptID: `Potong ke foto produk kedua ${productName} yang memperlihatkan kemasan / klaim BPOM / badge rating dengan jelas, dengan teks CTA tebal dan panah mengarah ke bawah ke keranjang kuning. Tampilan sinematik hangat, suasana ramah mengundang, detail sangat jelas, photorealistic 8k. Produk ${productName} yang sama, jangan diganti.`,
           audioCue: "Ding Bell FX + Upbeat Outro",
           voiceOverSegment: vo3,
           interactiveAction: "Panah berkedip ke keranjang kuning + teks CTA",

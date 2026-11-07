@@ -4644,10 +4644,17 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                       <ShoppingBag className="w-4 h-4 text-orange-400" />
                       <h4 className="text-sm font-bold text-white">Verifikasi Merek: {verifyingProduct.productName}</h4>
                     </div>
-                    <p className="text-[10px] text-slate-500 leading-relaxed flex items-start gap-1.5">
-                      <Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />
-                      Merek dari pengetahuan AI — <b className="text-slate-400">cek harga &amp; stok asli di Shopee</b>. Pilih merek buat langsung bikin naskah + blueprint videonya (foto/video produk lu siapin sendiri & upload di Flow).
-                    </p>
+                    <div className="text-[10px] text-slate-500 leading-relaxed bg-[#10111a]/60 border border-slate-850 rounded-lg px-3 py-2.5 space-y-1.5">
+                      <p className="flex items-start gap-1.5">
+                        <Info className="w-3 h-3 text-amber-500/70 mt-0.5 shrink-0" />
+                        <span>Ini <b className="text-slate-400">panduan merek dari AI</b>, <b className="text-amber-300">bukan listing Shopee asli</b> — Shopee gak bisa ditampilin di sini (diblokir anti-bot). Biar materi iklan sesuai SKU yang bener:</span>
+                      </p>
+                      <ol className="list-decimal ml-4 space-y-0.5 text-slate-500">
+                        <li>Klik <b className="text-orange-300">"Cari di Shopee"</b> → pilih produk asli yang mau lu promosiin.</li>
+                        <li>Klik kanan fotonya → <b className="text-slate-400">"Salin alamat gambar"</b> (atau salin link produk).</li>
+                        <li>Balik ke tab <b className="text-pink-300">Robot video</b> → tempel di <b className="text-cyan-300">"Ambil materi dari link"</b> (Bank Produk) → foto langsung masuk, <b className="text-slate-400">match sama produk aslinya</b>.</li>
+                      </ol>
+                    </div>
 
                     {loadingBrands && (
                       <div className="flex flex-col items-center justify-center py-10 text-center">
@@ -4685,12 +4692,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                               >
                                 <ShoppingBag className="w-3 h-3" /> Cari di Shopee <ExternalLink className="w-2.5 h-2.5" />
                               </a>
-                              <button
-                                onClick={() => useBrandForVideo(b)}
-                                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold font-mono transition-all active:scale-95 bg-cyan-500 text-slate-950 hover:bg-cyan-400"
-                              >
-                                <Video className="w-3 h-3" /> Pakai Merek Ini buat Video
-                              </button>
                             </div>
                           </div>
                         ))}

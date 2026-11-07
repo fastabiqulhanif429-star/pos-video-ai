@@ -1681,6 +1681,25 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
     }
   };
 
+  // Download materi slot ke folder Downloads laptop (pas user yakin pakai materinya)
+  const downloadMaterial = async (slot: "foto1" | "video" | "foto2") => {
+    if (!selectedBankId) return;
+    try {
+      const blob = await idbGet(`${selectedBankId}__${slot}`);
+      if (!blob) return;
+      const meta = bankProducts.find((p) => p.id === selectedBankId)?.materials[slot];
+      const ext = (meta?.type?.split("/")[1]) || (slot === "video" ? "mp4" : "jpg");
+      const slotName = slot === "foto1" ? "hook" : slot === "video" ? "tengah" : "cta";
+      const base = (productName || "produk").replace(/[^a-z0-9]/gi, "_").slice(0, 40);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${base}_${slotName}.${ext}`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+      showNotification("Materi ke-download ke laptop (folder Downloads). 💾", "success");
+    } catch (e) { /* abaikan */ }
+  };
+
   // Buka wizard materi (dipanggil setelah salin prompt) — pastiin produk kesimpan dulu
   const openMaterialWizard = () => {
     if (productName.trim() && !selectedBankId) {
@@ -4307,7 +4326,10 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
           const isUp = uploadingSlot === slot;
           const isLast = wizardStep === steps.length - 1;
           const finish = () => { setWizardOpen(false); showNotification("Materi siap! Buka Google Flow → tempel prompt → upload materi tiap scene. 🎬", "success"); };
-          const next = () => { if (isLast) finish(); else { setWizardStep(wizardStep + 1); setWizardLink(""); } };
+          const advance = () => { if (isLast) finish(); else { setWizardStep(wizardStep + 1); setWizardLink(""); } };
+          // "Yakin pakai ini": kalau ada materi → download ke laptop dulu, baru lanjut
+          const next = () => { if (has) downloadMaterial(slot); advance(); };
+          const skip = () => advance();
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="wizard-modal">
               <motion.div
@@ -4394,7 +4416,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                   </div>
                   <div className="flex gap-2">
                     {s.canSkip && (
-                      <button onClick={next} className="text-[11px] font-mono font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg transition-all">Skip</button>
+                      <button onClick={skip} className="text-[11px] font-mono font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg transition-all">Skip</button>
                     )}
                     <button onClick={next} className="text-[11px] font-mono font-bold text-white bg-gradient-to-r from-pink-500 to-violet-600 hover:from-pink-400 hover:to-violet-500 px-4 py-2 rounded-lg shadow-lg transition-all active:scale-95 flex items-center gap-1.5">
                       {has ? "Yakin, pakai ini" : (isLast ? "Selesai" : "Lanjut")} {isLast ? <Check className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}

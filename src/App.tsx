@@ -203,7 +203,7 @@ export default function App() {
   // Durasi video (detik) — bisa di-custom
   const [videoDuration, setVideoDuration] = useState<number>(() => {
     const d = parseInt(safeStorage.getItem("affos_duration") || "", 10);
-    return d >= 5 && d <= 15 ? d : 12;
+    return d >= 5 && d <= 15 ? d : 10;
   });
 
   // ===== BANK PRODUK: simpan produk + materinya (2 foto + 1 video) di IndexedDB =====
@@ -2931,6 +2931,9 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                   <span className="text-[10px] text-slate-500 font-mono">dtk</span>
                 </div>
               </div>
+              {videoDuration > 10
+                ? <p className="text-[9px] text-amber-400 leading-tight">⚠️ Di atas 10 dtk: Flow gak bisa 1 klip utuh — harus per-scene & gabung manual. Pilih 10 dtk biar 1 klip langsung jadi.</p>
+                : <p className="text-[9px] text-emerald-400/80 leading-tight">✅ 10 dtk pas buat 1 klip utuh di Flow (tanpa gabung-gabung).</p>}
             </div>
 
             <button

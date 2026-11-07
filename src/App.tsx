@@ -3344,21 +3344,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                  <button
-                    onClick={syncVoiceOverToScenes}
-                    className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-amber-300 px-3 py-2 rounded-xl font-mono font-bold transition-all"
-                    title="Sinkronkan ulang naskah suara Step 2 ke segmen 3 scene"
-                  >
-                    <RefreshCw className="w-3 h-3 text-amber-400" />
-                    Sinkronkan Naskah
-                  </button>
-                  <button
-                    onClick={downloadBlueprintJSON}
-                    className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-200 px-3.5 py-2 rounded-xl font-mono font-bold transition-all"
-                  >
-                    <Download className="w-3.5 h-3.5 text-emerald-400" />
-                    Unduh JSON
-                  </button>
                   {videoDuration > 10 ? (
                     <>
                       <button

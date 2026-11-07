@@ -4979,16 +4979,8 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                         {/* Actions */}
                         <div className="flex flex-wrap gap-2 pt-1">
                           <button
-                            onClick={() => useProductFromResearch(p)}
-                            className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-violet-600 via-pink-500 to-amber-500 hover:opacity-90 text-white text-xs font-extrabold font-mono transition-all active:scale-95 shadow-md shadow-violet-500/10"
-                          >
-                            <Video className="w-3.5 h-3.5" />
-                            BIKIN VIDEO
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </button>
-                          <button
                             onClick={() => verifyBrands(p)}
-                            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-orange-950/40 border border-orange-500/40 text-orange-300 hover:bg-orange-900/40 text-xs font-bold font-mono transition-all active:scale-95"
+                            className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-orange-950/40 border border-orange-500/40 text-orange-300 hover:bg-orange-900/40 text-xs font-bold font-mono transition-all active:scale-95"
                           >
                             <ShoppingBag className="w-3.5 h-3.5" />
                             Cek Merek di Shopee

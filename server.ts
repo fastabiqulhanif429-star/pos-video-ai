@@ -242,21 +242,26 @@ app.post("/api/generate-narrative", async (req, res) => {
 // Endpoint 3: Generate Video Blueprint (JSON Structure for Veo, Flow & Video AI Generator)
 app.post("/api/generate-blueprint", async (req, res) => {
   try {
-    const { productName, keyFeatures, targetAudience, voiceOverText, creativeAccent, mainTextStyle, imageUrl, hasImage: hasImageFlag, voiceGender } = req.body;
+    const { productName, keyFeatures, targetAudience, voiceOverText, creativeAccent, mainTextStyle, imageUrl, hasImage: hasImageFlag, voiceGender, duration } = req.body;
     // Foto produk TIDAK dikirim ke model (Gemini cuma bikin teks). Kita cuma perlu TAHU ada foto
     // supaya instruksi ke Flow/Veo memaksa produk sesuai foto referensi. Jangan pernah inline base64 ke prompt.
     const hasImage = !!hasImageFlag || (typeof imageUrl === "string" && imageUrl.length > 0);
+    // Durasi custom (detik). Breakpoint 3 scene: HOOK ~25%, B-ROLL ~42%, CTA ~33%.
+    const dur = Number(duration) >= 5 && Number(duration) <= 60 ? Math.round(Number(duration)) : 12;
+    const b1 = Math.max(1, Math.round(dur * 0.25));
+    const b2 = Math.max(b1 + 1, Math.round(dur * 0.67));
+    const fmt = (n: number) => n.toFixed(1) + "s";
     const isMale = voiceGender === "male";
     const creatorDesc = isMale 
       ? "A consistent 24-year-old stylish Indonesian male creator with short neat dark hair, expressive eyes, confident warm smile, wearing a modern stylish shirt" 
       : "A consistent 23-year-old stylish Indonesian female influencer, radiant smiling expression, neat dark hair, friendly approachable look";
 
     const prompt = `
-      Buatlah Blueprint Skenario Video Affiliate 9:16 untuk SATU produk saja (durasi ~12 detik) dalam format JSON.
+      Buatlah Blueprint Skenario Video Affiliate 9:16 untuk SATU produk saja (TOTAL DURASI TEPAT ${dur} detik) dalam format JSON.
       Video ini DIRAKIT dari 3 BAHAN MENTAH yang disiapkan pengguna untuk 1 produk (pengguna akan upload bahan ini manual ke Flow/Veo):
-      - Foto Statis 1 (foto produk clear/close-up kemasan) → dipakai di HOOK (3 detik pertama) + teks headline penahan mata.
-      - Video Asli Pendek (B-roll ~5 detik: produk beneran dioles ke kulit / ditetes / unboxing) → dipakai di TENGAH (detik 3-8) biar penonton percaya barangnya real.
-      - Foto Statis 2 (foto sudut lain / tekstur / klaim BPOM / rating) → dipakai di CTA (detik 8-12) + ajakan klik keranjang/link.
+      - Foto Statis 1 (foto produk clear/close-up kemasan) → dipakai di HOOK (0-${b1} detik) + teks headline penahan mata.
+      - Video Asli Pendek (produk beneran dioles ke kulit / ditetes / unboxing) → dipakai di TENGAH (${b1}-${b2} detik) biar penonton percaya barangnya real.
+      - Foto Statis 2 (foto sudut lain / tekstur / klaim BPOM / rating) → dipakai di CTA (${b2}-${dur} detik) + ajakan klik keranjang/link.
 
       Detail Masukan:
       - Nama Produk: ${productName || "Produk Pilihan"}
@@ -274,7 +279,7 @@ app.post("/api/generate-blueprint", async (req, res) => {
       5. Konsistensi Kreator: kalau ada orang, pakai kreator SAMA di semua scene (e.g. "${creatorDesc}"); tambahkan "keep the same creator's face, hair and outfit consistent".
       6. visualPrompt ditulis BAHASA INGGRIS sinematik (studio lighting, shallow depth of field, photorealistic 8k).
 
-      Susunlah tepat 3 scene (Scene 1: HOOK 0-3s pakai Foto Statis 1, Scene 2: DEMO B-ROLL 3-8s pakai Video Asli Pendek, Scene 3: CTA 8-12s pakai Foto Statis 2) ke dalam JSON dengan properti:
+      Susunlah tepat 3 scene yang total durasinya PERSIS ${dur} detik (Scene 1: HOOK ${fmt(0)} - ${fmt(b1)} pakai Foto Statis 1; Scene 2: DEMO B-ROLL ${fmt(b1)} - ${fmt(b2)} pakai Video Asli Pendek; Scene 3: CTA ${fmt(b2)} - ${fmt(dur)} pakai Foto Statis 2) ke dalam JSON dengan properti:
       - visualAesthetic: Penjelasan gaya visual keseluruhan.
       - textOverlayStyle: Detail gaya teks overlay.
       - scenes: Array berisi tepat 3 objek:
@@ -345,6 +350,10 @@ app.post("/api/generate-blueprint", async (req, res) => {
     const voiceOverText = req.body.voiceOverText || "Sumpah ini racun banget! Desainnya cakep parah dan harganya ramah di kantong. Buruan checkout!";
     const mainTextStyle = req.body.mainTextStyle || "Sketch";
     const isMale = req.body.voiceGender === "male";
+    const durFb = Number(req.body.duration) >= 5 && Number(req.body.duration) <= 60 ? Math.round(Number(req.body.duration)) : 12;
+    const fb1 = Math.max(1, Math.round(durFb * 0.25));
+    const fb2 = Math.max(fb1 + 1, Math.round(durFb * 0.67));
+    const ts = (a: number, b: number) => `${a.toFixed(1)}s - ${b.toFixed(1)}s`;
     const modelDesc = isMale 
       ? "a consistent 24-year-old Indonesian male creator with stylish haircut, expressive friendly eyes" 
       : "a consistent 23-year-old Indonesian female influencer smiling excitedly, radiant look";
@@ -364,8 +373,8 @@ app.post("/api/generate-blueprint", async (req, res) => {
       scenes: [
         {
           sceneId: "scene-1",
-          title: "SCENE 1: HOOK (0s - 3s)",
-          timestamp: "0.0s - 3.0s",
+          title: `SCENE 1: HOOK (${ts(0, fb1)})`,
+          timestamp: ts(0, fb1),
           materialType: "Foto Statis 1 (foto produk clear)",
           textOverlay: isMale ? `RACUN BARU: ${productName.toUpperCase()}! 🔥` : `RACUN TIKTOK: ${productName.toUpperCase()}! 🔥`,
           visualPrompt: `Open on the static clear close-up product photo of ${productName} filling the frame as the hook, slow subtle zoom-in, bold headline text on top. Warm studio background with aesthetic bokeh, soft volumetric lighting, photorealistic 8k, ${accentDesc}. Keep the product packaging, label and colors exactly as the product ${productName} — do not substitute a different product.`,
@@ -376,8 +385,8 @@ app.post("/api/generate-blueprint", async (req, res) => {
         },
         {
           sceneId: "scene-2",
-          title: "SCENE 2: DEMO B-ROLL (3s - 8s)",
-          timestamp: "3.0s - 8.0s",
+          title: `SCENE 2: DEMO B-ROLL (${ts(fb1, fb2)})`,
+          timestamp: ts(fb1, fb2),
           materialType: "Video Asli Pendek (B-roll produk dipakai)",
           visualPrompt: `Transition into the real short B-roll footage of ${productName} actually being used — product being applied to skin / poured / swatched / unboxed in real life, close-up macro with real hand movement (not a static photo), showing texture and ${keyFeatures}. Shallow depth of field, clean studio lighting, smooth real motion, photorealistic 8k. Keep it the same product ${productName}.`,
           audioCue: "Subtle Bass Drop + Upbeat Music",
@@ -387,8 +396,8 @@ app.post("/api/generate-blueprint", async (req, res) => {
         },
         {
           sceneId: "scene-3",
-          title: "SCENE 3: CTA & CHECKOUT (8s - 12s)",
-          timestamp: "8.0s - 12.0s",
+          title: `SCENE 3: CTA & CHECKOUT (${ts(fb2, durFb)})`,
+          timestamp: ts(fb2, durFb),
           materialType: "Foto Statis 2 (kemasan/klaim/BPOM)",
           textOverlay: `KLIK KERANJANG KUNING DI BAWAH! 👇`,
           visualPrompt: `Cut to the second static product photo of ${productName} showing packaging / BPOM claim / rating badge clearly, with a bold CTA text and an arrow pointing down to the shopping bag / yellow cart. Warm cinematic look, friendly inviting atmosphere, extremely clear detail, photorealistic 8k. Same product ${productName}, do not substitute.`,

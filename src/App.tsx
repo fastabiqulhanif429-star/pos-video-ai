@@ -142,6 +142,52 @@ const createSafeStorage = (type: "localStorage" | "sessionStorage") => {
 };
 
 const safeStorage = createSafeStorage("localStorage");
+
+// ===== IndexedDB: simpan blob materi produk (foto/video) — localStorage kekecilan buat video =====
+const IDB_NAME = "affos_media";
+const IDB_STORE = "materials";
+function idbOpen(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    } catch (e) { reject(e); }
+  });
+}
+async function idbSet(key: string, blob: Blob): Promise<void> {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(blob, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGet(key: string): Promise<Blob | null> {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const r = tx.objectStore(IDB_STORE).get(key);
+    r.onsuccess = () => resolve((r.result as Blob) || null);
+    r.onerror = () => reject(r.error);
+  });
+}
+async function idbDel(key: string): Promise<void> {
+  try {
+    const db = await idbOpen();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch (e) { /* ignore */ }
+}
 const safeSessionStorage = createSafeStorage("sessionStorage");
 
 export default function App() {
@@ -154,6 +200,21 @@ export default function App() {
   const [targetAudience, setTargetAudience] = useState<string>("");
   const [keyFeatures, setKeyFeatures] = useState<string>("");
   const [colorsDetected, setColorsDetected] = useState<string[]>([]);
+  // Durasi video (detik) — bisa di-custom
+  const [videoDuration, setVideoDuration] = useState<number>(() => {
+    const d = parseInt(safeStorage.getItem("affos_duration") || "", 10);
+    return d >= 5 && d <= 60 ? d : 12;
+  });
+
+  // ===== BANK PRODUK: simpan produk + materinya (2 foto + 1 video) di IndexedDB =====
+  type BankMat = { name: string; type: string };
+  type BankProduct = { id: string; name: string; features: string; materials: { foto1?: BankMat; video?: BankMat; foto2?: BankMat } };
+  const [bankProducts, setBankProducts] = useState<BankProduct[]>(() => {
+    try { const s = safeStorage.getItem("affos_bank"); return s ? JSON.parse(s) : []; } catch (e) { return []; }
+  });
+  const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
+  const [materialUrls, setMaterialUrls] = useState<{ foto1?: string; video?: string; foto2?: string }>({});
+  const [uploadingSlot, setUploadingSlot] = useState<string | null>(null);
 
   // Step 2: Naskah Voice over
   const [draftVoiceOver, setDraftVoiceOver] = useState<string>("");
@@ -768,6 +829,7 @@ export default function App() {
       visualAesthetic: blueprint.visualAesthetic,
       productName,
       voiceGender,
+      duration: videoDuration,
     });
   };
 
@@ -806,25 +868,27 @@ export default function App() {
     visualAesthetic?: string;
     productName?: string;
     voiceGender?: string;
+    duration?: number;
   }): string => {
     const scenes = item.scenes || [];
     if (scenes.length === 0) return "";
     const pName = item.productName || "the product";
+    const dur = item.duration && item.duration >= 5 ? item.duration : 12;
     const beats = scenes
       .map(
         (s) =>
           `• ${s.timestamp} [${s.materialType || "bahan"}] — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`
       )
       .join("\n");
-    return `Create ONE short continuous vertical 9:16 photorealistic affiliate video (~12 seconds) about ONE product only: ${pName}.
+    return `Create ONE short continuous vertical 9:16 photorealistic affiliate video (~${dur} seconds) about ONE product only: ${pName}.
 This single video is ASSEMBLED from 3 materials for this one product — when generating in Flow/Veo, attach these materials:
   1) a clear STATIC product photo (used for the hook / first 3s),
   2) a short REAL B-ROLL clip of the product actually being used — applied to skin / poured / swatched / unboxed (used for the middle 3-8s),
   3) a second STATIC product/packaging photo, e.g. BPOM/rating/claim (used for the CTA / last 3s).
 Keep the product ${pName} identical and clearly visible — same packaging, label, colors and shape; do NOT substitute or invent a different product. ONE product per video, do not mix other products.
-IMPORTANT: output must be ONE seamless ~12s video from start to finish — do NOT generate separate clips, do NOT generate an image per scene. It is a single continuous take that smoothly transitions through three beats (each beat notes which material it uses):
+IMPORTANT: output must be ONE seamless ~${dur}s video from start to finish — do NOT generate separate clips, do NOT generate an image per scene. It is a single continuous take that smoothly transitions through three beats (each beat notes which material it uses):
 ${beats}
-Keep the SAME creator identity (if a person appears), lighting mood and visual style across the whole video. Overall aesthetic: ${item.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous ~12-second video, 9:16 vertical, photorealistic 8k, smooth motion.`;
+Keep the SAME creator identity (if a person appears), lighting mood and visual style across the whole video. Overall aesthetic: ${item.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous ~${dur}-second video, 9:16 vertical, photorealistic 8k, smooth motion.`;
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1353,7 +1417,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
         body: JSON.stringify({
           productName: item.productName, keyFeatures: item.keyFeatures, targetAudience: item.targetAudience,
           voiceOverText: vo, creativeAccent: creativeAccent, mainTextStyle: mainTextStyle,
-          hasImage, voiceGender: item.gender,
+          hasImage, voiceGender: item.gender, duration: videoDuration,
         }),
       });
       const bpData = await bpResp.json();
@@ -1422,6 +1486,93 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
         setImageUrl(dataUrl);
       } catch (e) { /* foto opsional, abaikan kalau gagal */ }
     }
+  };
+
+  // ===== BANK PRODUK handlers =====
+  const persistBank = (next: BankProduct[]) => {
+    setBankProducts(next);
+    try { safeStorage.setItem("affos_bank", JSON.stringify(next)); } catch (e) {}
+  };
+  const revokeMaterialUrls = () => {
+    setMaterialUrls((prev) => { Object.values(prev).forEach((u) => { if (typeof u === "string") URL.revokeObjectURL(u); }); return {}; });
+  };
+  const loadMaterialUrls = async (p: BankProduct) => {
+    const slots: ("foto1" | "video" | "foto2")[] = ["foto1", "video", "foto2"];
+    const urls: { foto1?: string; video?: string; foto2?: string } = {};
+    for (const slot of slots) {
+      if (p.materials[slot]) {
+        try { const blob = await idbGet(`${p.id}__${slot}`); if (blob) urls[slot] = URL.createObjectURL(blob); } catch (e) {}
+      }
+    }
+    setMaterialUrls((prev) => { Object.values(prev).forEach((u) => { if (typeof u === "string") URL.revokeObjectURL(u); }); return urls; });
+  };
+  const selectBankProduct = (p: BankProduct) => {
+    setSelectedBankId(p.id);
+    setProductName(p.name);
+    setKeyFeatures(p.features || "");
+    loadMaterialUrls(p);
+    showNotification(`Produk "${p.name}" dipilih dari bank.`, "success");
+  };
+  const newBankProduct = () => {
+    setSelectedBankId(null);
+    setProductName("");
+    setKeyFeatures("");
+    revokeMaterialUrls();
+  };
+  const saveBankProduct = () => {
+    if (!productName.trim()) { showNotification("Isi nama produk dulu buat disimpan ke bank.", "info"); return; }
+    if (selectedBankId) {
+      persistBank(bankProducts.map((p) => p.id === selectedBankId ? { ...p, name: productName.trim(), features: keyFeatures.trim() } : p));
+      showNotification("Produk di bank diperbarui. 💾", "success");
+    } else {
+      const id = `bp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      persistBank([...bankProducts, { id, name: productName.trim(), features: keyFeatures.trim(), materials: {} }]);
+      setSelectedBankId(id);
+      revokeMaterialUrls();
+      showNotification("Produk disimpan ke bank. Upload materinya di bawah. 🏦", "success");
+    }
+  };
+  const removeBankProduct = async (id: string) => {
+    for (const slot of ["foto1", "video", "foto2"]) { await idbDel(`${id}__${slot}`); }
+    persistBank(bankProducts.filter((p) => p.id !== id));
+    if (selectedBankId === id) newBankProduct();
+  };
+  const uploadMaterial = async (slot: "foto1" | "video" | "foto2", file: File) => {
+    let pid = selectedBankId;
+    let working = bankProducts;
+    if (!pid) {
+      if (!productName.trim()) { showNotification("Isi nama produk dulu (otomatis kesimpan ke bank pas upload).", "info"); return; }
+      pid = `bp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      working = [...bankProducts, { id: pid, name: productName.trim(), features: keyFeatures.trim(), materials: {} }];
+      setSelectedBankId(pid);
+    }
+    setUploadingSlot(slot);
+    try {
+      await idbSet(`${pid}__${slot}`, file);
+      const meta: BankMat = { name: file.name, type: file.type };
+      persistBank(working.map((p) => p.id === pid ? { ...p, materials: { ...p.materials, [slot]: meta } } : p));
+      setMaterialUrls((prev) => { if (prev[slot]) URL.revokeObjectURL(prev[slot]!); return { ...prev, [slot]: URL.createObjectURL(file) }; });
+      showNotification("Materi tersimpan. 📎", "success");
+    } catch (e) {
+      showNotification("Gagal simpan materi (file mungkin kegedean buat browser).", "error");
+    } finally {
+      setUploadingSlot(null);
+    }
+  };
+  const removeMaterial = async (slot: "foto1" | "video" | "foto2") => {
+    if (!selectedBankId) return;
+    await idbDel(`${selectedBankId}__${slot}`);
+    persistBank(bankProducts.map((p) => p.id === selectedBankId ? { ...p, materials: { ...p.materials, [slot]: undefined } } : p));
+    setMaterialUrls((prev) => { if (prev[slot]) URL.revokeObjectURL(prev[slot]!); const n = { ...prev }; delete n[slot]; return n; });
+  };
+  const selectedBank = bankProducts.find((p) => p.id === selectedBankId) || null;
+  const bankMaterialMeta = (slot: "foto1" | "video" | "foto2") => selectedBank?.materials[slot];
+  const bankMissing = (): string[] => {
+    const lbl: Record<string, string> = { foto1: "Foto 1", video: "Video asli", foto2: "Foto 2" };
+    const p = selectedBank;
+    const slots: ("foto1" | "video" | "foto2")[] = ["foto1", "video", "foto2"];
+    if (!p) return slots.map((s) => lbl[s]);
+    return slots.filter((s) => !p.materials[s]).map((s) => lbl[s]);
   };
 
   // ===== EVALUASI handlers =====
@@ -1629,8 +1780,10 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
           mainTextStyle: mainTextStyle,
           hasImage: !!imageUrl,
           voiceGender: voiceGender,
+          duration: videoDuration,
         }),
       });
+      try { safeStorage.setItem("affos_duration", String(videoDuration)); } catch (e) {}
 
       if (!response.ok) throw new Error("Gagal generate blueprint");
 
@@ -1640,9 +1793,9 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
         setSelectedSceneId(result.scenes[0].sceneId);
         addHistoryItem(productName, imageUrl, targetAudience, keyFeatures, colorsDetected, draftVoiceOver, selectedTone, result);
         if (result.isFallback) {
-          showNotification("Blueprint skenario video ~12 detik berhasil disusun! 🎬", "success");
+          showNotification(`Blueprint skenario video ~${videoDuration} detik berhasil disusun! 🎬`, "success");
         } else {
-          showNotification("Blueprint video ~12 detik berhasil disusun! Siap digunakan.", "success");
+          showNotification(`Blueprint video ~${videoDuration} detik berhasil disusun! Siap digunakan.`, "success");
         }
       } else {
         throw new Error("Format blueprint tidak valid atau kosong");
@@ -2067,21 +2220,34 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
             
             {/* FOTO/VISUAL PRODUCT COMPONENT */}
             <div className="space-y-4">
-              <label className="text-[11px] uppercase tracking-wider text-slate-400 font-mono font-bold block">
-                Bahan Video (disiapkan sendiri)
-              </label>
-
-              <div className="rounded-xl border border-amber-500/25 bg-amber-950/10 p-4 space-y-2.5">
-                <p className="text-[11px] text-slate-300 leading-relaxed flex items-start gap-1.5">
-                  <Info className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
-                  Foto &amp; video produk <b className="text-amber-300">diupload langsung di Google Flow/Veo</b> pas generate — bukan di sini. Siapkan 3 bahan per 1 produk:
-                </p>
-                <ul className="text-[11px] text-slate-400 space-y-1.5">
-                  <li className="flex gap-2"><span>📸</span><span><b className="text-slate-200">Foto 1</b> — produk clear/close-up kemasan <span className="text-slate-600">(buat hook 3 detik awal)</span></span></li>
-                  <li className="flex gap-2"><span>🎥</span><span><b className="text-slate-200">Video asli ~5 dtk</b> — produk dipakai/dioles/ditetes/unboxing <span className="text-slate-600">(buat tengah)</span></span></li>
-                  <li className="flex gap-2"><span>📸</span><span><b className="text-slate-200">Foto 2</b> — kemasan/tekstur/klaim BPOM/rating <span className="text-slate-600">(buat CTA akhir)</span></span></li>
-                </ul>
-                <p className="text-[10px] text-slate-500 border-t border-amber-500/15 pt-2">💡 Prompt yang digenerate bakal nandain bahan mana dipasang di scene mana. 1 video = 1 produk.</p>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] uppercase tracking-wider text-slate-400 font-mono font-bold flex items-center gap-1.5">
+                  <ShoppingBag className="w-3.5 h-3.5 text-amber-400" /> Bank Produk
+                </label>
+                <button
+                  onClick={newBankProduct}
+                  className="text-[10px] font-mono font-bold text-violet-300 hover:text-violet-200 bg-violet-950/40 border border-violet-500/30 px-2 py-1 rounded-lg transition-all active:scale-95 flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Produk baru
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {bankProducts.length === 0 && (
+                  <span className="text-[10px] text-slate-600 leading-relaxed">Belum ada produk. Isi nama + fitur di bawah → <b className="text-slate-500">Simpan ke Bank</b>, lalu upload materinya.</span>
+                )}
+                {bankProducts.map((p) => {
+                  const filled = (["foto1", "video", "foto2"] as const).filter((s) => p.materials[s]).length;
+                  const sel = selectedBankId === p.id;
+                  return (
+                    <div key={p.id} className={`flex items-center rounded-lg border text-[11px] transition-all ${sel ? "bg-amber-950/40 border-amber-500/50" : "bg-slate-900/60 border-slate-800 hover:border-slate-700"}`}>
+                      <button onClick={() => selectBankProduct(p)} className="pl-2.5 pr-1.5 py-1.5 font-bold font-mono flex items-center gap-1.5">
+                        <span className={sel ? "text-amber-200" : "text-slate-300"}>{p.name}</span>
+                        <span className={`text-[8px] px-1 py-0.5 rounded font-bold ${filled === 3 ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"}`}>{filled === 3 ? "✓ lengkap" : `${filled}/3`}</span>
+                      </button>
+                      <button onClick={() => removeBankProduct(p.id)} className="px-1.5 py-1.5 text-slate-600 hover:text-rose-400 transition-all" title="hapus produk"><X className="w-3 h-3" /></button>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* INPUT NAMA & FITUR PRODUK */}
@@ -2110,6 +2276,64 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                     className="w-full bg-[#08090f] border border-slate-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-600 text-sm font-medium transition-all"
                   />
                 </div>
+              </div>
+
+              {/* Simpan ke bank + status materi */}
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <button
+                  onClick={saveBankProduct}
+                  className="text-[11px] font-mono font-bold text-amber-300 hover:text-amber-200 bg-amber-950/40 border border-amber-500/40 px-3 py-1.5 rounded-lg transition-all active:scale-95 flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" /> {selectedBankId ? "Update produk" : "Simpan ke Bank"}
+                </button>
+                {(() => {
+                  const miss = bankMissing();
+                  return miss.length > 0
+                    ? <span className="text-[10px] font-mono text-amber-400">⚠️ Materi kurang: {miss.join(", ")}</span>
+                    : <span className="text-[10px] font-mono text-emerald-400">✅ Materi lengkap (siap upload ke Flow)</span>;
+                })()}
+              </div>
+
+              {/* Slot upload materi (2 foto + 1 video) */}
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-slate-500 font-mono font-bold block mb-1.5">
+                  Materi Produk {selectedBank ? `· ${selectedBank.name}` : "(simpan produk dulu)"}
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { key: "foto1" as const, label: "Foto 1", desc: "produk clear (hook)", accept: "image/*", icon: "📸" },
+                    { key: "video" as const, label: "Video asli", desc: "produk dipakai (tengah)", accept: "video/*", icon: "🎥" },
+                    { key: "foto2" as const, label: "Foto 2", desc: "kemasan/BPOM (CTA)", accept: "image/*", icon: "📸" },
+                  ]).map((s) => {
+                    const url = materialUrls[s.key];
+                    const has = !!bankMaterialMeta(s.key);
+                    const isUp = uploadingSlot === s.key;
+                    return (
+                      <div key={s.key} className={`rounded-xl border p-2 flex flex-col ${has ? "border-emerald-500/30 bg-emerald-950/10" : "border-dashed border-slate-700 bg-slate-950/40"}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[9px] font-mono font-bold text-slate-300">{s.icon} {s.label}</span>
+                          {has && <button onClick={() => removeMaterial(s.key)} className="text-slate-600 hover:text-rose-400" title="hapus materi"><X className="w-2.5 h-2.5" /></button>}
+                        </div>
+                        <label className="cursor-pointer flex-1 flex items-center justify-center min-h-[64px] rounded-lg overflow-hidden bg-[#08090f]/60">
+                          <input type="file" accept={s.accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMaterial(s.key, f); e.currentTarget.value = ""; }} />
+                          {isUp ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                          ) : url ? (
+                            s.key === "video"
+                              ? <video src={url} className="max-h-[64px] rounded" muted playsInline />
+                              : <img src={url} alt={s.label} className="max-h-[64px] rounded object-contain" />
+                          ) : (
+                            <span className="text-[9px] text-slate-500 text-center px-1 flex flex-col items-center gap-1"><Upload className="w-3.5 h-3.5" />{s.desc}</span>
+                          )}
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-600 mt-1.5 flex items-start gap-1.5">
+                  <Info className="w-3 h-3 text-slate-700 mt-0.5 shrink-0" />
+                  Materi disimpan di browser (bank produk). Pas generate di Flow/Veo, ambil materi ini & upload manual sesuai bahan tiap scene. 1 video = 1 produk.
+                </p>
               </div>
 
             </div>
@@ -2450,11 +2674,43 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 Automasi Video Kreatif
               </span>
               <h3 className="text-sm font-extrabold text-slate-100 mt-0.5">
-                Buat Skenario Konten Pemasaran ~12 Detik
+                Buat Skenario Konten Pemasaran ~{videoDuration} Detik
               </h3>
               <p className="text-[11px] text-slate-400">
                 Analisis visual, gaya ornamen overlay & arsitektur naskah
               </p>
+            </div>
+
+            {/* DURASI CUSTOM */}
+            <div className="w-full md:w-auto flex flex-col gap-1.5 bg-[#0c0d15]/70 border border-slate-800 rounded-xl p-2.5">
+              <span className="text-[9px] uppercase font-bold tracking-widest text-slate-400 font-mono flex items-center gap-1">
+                <Clock className="w-3 h-3 text-violet-400" /> Durasi video
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {[10, 12, 15, 20, 30].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setVideoDuration(d)}
+                    className={`text-[11px] font-mono font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${videoDuration === d ? "bg-violet-600 border-violet-400 text-white" : "bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200"}`}
+                  >
+                    {d}s
+                  </button>
+                ))}
+                <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-lg px-1.5">
+                  <input
+                    type="number"
+                    min={5}
+                    max={60}
+                    value={videoDuration}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      if (!isNaN(v)) setVideoDuration(Math.max(5, Math.min(60, v)));
+                    }}
+                    className="w-10 bg-transparent text-[11px] text-slate-100 font-mono font-bold py-1 outline-none text-center"
+                  />
+                  <span className="text-[10px] text-slate-500 font-mono">dtk</span>
+                </div>
+              </div>
             </div>
 
             <button
@@ -2482,7 +2738,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-800/80">
               <div>
                 <h3 className="text-xs uppercase font-extrabold text-slate-200 tracking-wider font-mono">
-                  Alur Rencana Durasi Video (~12 Detik)
+                  Alur Rencana Durasi Video (~{videoDuration} Detik)
                 </h3>
                 <p className="text-[10px] text-slate-400 font-mono">Format Vertikal Affiliate 9:16</p>
               </div>
@@ -2526,7 +2782,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 )}
                 <div className="flex items-center gap-1 bg-slate-900 border border-slate-800/80 px-2.5 py-1 rounded-lg text-[10px] text-slate-400">
                   <Clock className="w-3.5 h-3.5 text-violet-400" />
-                  <span>Total: ~12 Detik</span>
+                  <span>Total: ~{videoDuration} Detik</span>
                 </div>
               </div>
             </div>
@@ -2537,7 +2793,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 <Sparkle className="w-8 h-8 text-violet-400/40 mb-3 animate-pulse" />
                 <p className="text-xs font-bold text-slate-300">Belum ada Blueprint visual yang dibuat</p>
                 <p className="text-[10px] text-slate-500 max-w-sm mt-1 leading-normal">
-                  Isi nama produk (atau pilih preset / lewat Riset Produk) & naskah suara, lalu klik <span className="text-pink-400 font-bold">"BUAT SKRIP VISUAL (JSON)"</span> untuk men-generate otomatis skenario video ~12 detik (3 bahan: foto, video asli, foto).
+                  Isi nama produk (atau pilih preset / lewat Riset Produk) & naskah suara, lalu klik <span className="text-pink-400 font-bold">"BUAT SKRIP VISUAL (JSON)"</span> untuk men-generate otomatis skenario video ~{videoDuration} detik (3 bahan: foto, video asli, foto).
                 </p>
               </div>
             ) : (
@@ -2860,7 +3116,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 </div>
               </div>
               <p className="text-[10px] text-slate-500 leading-normal mt-2.5">
-                💡 <b className="text-emerald-400">Mau 1 video utuh?</b> Pakai <b className="text-slate-300">"SALIN PROMPT 1 VIDEO"</b> — 1 prompt gabungan jadi 1 video ~12 detik. Kalau pakai JSON per scene, tiap scene bisa ke-generate jadi klip terpisah (3 video). Tempel di Google Flow / Veo bareng foto produk Anda.
+                💡 <b className="text-emerald-400">Mau 1 video utuh?</b> Pakai <b className="text-slate-300">"SALIN PROMPT 1 VIDEO"</b> — 1 prompt gabungan jadi 1 video ~{videoDuration} detik. Kalau pakai JSON per scene, tiap scene bisa ke-generate jadi klip terpisah (3 video). Tempel di Google Flow / Veo bareng 3 bahan (2 foto + 1 video asli).
               </p>
             </div>
           )}

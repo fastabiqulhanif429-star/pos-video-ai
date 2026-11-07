@@ -952,15 +952,17 @@ export default function App() {
     const end = parseFloat((String(partScenes[partScenes.length - 1]?.timestamp || "").match(/-\s*([\d.]+)\s*s/) || [])[1] || "0");
     const pDur = Math.max(3, Math.round(end - start));
     const beats = partScenes.map((s) => `• ${s.timestamp} — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`).join("\n");
+    // Frame "hand-off" yang sama di akhir Part 1 & awal Part 2 → biar sambungannya mulus pas digabung
+    const handoff = `the same creator centered in frame holding ${pName} up toward the camera, facing forward, same outfit, same background, same soft studio lighting and same camera distance/angle`;
     const connect = partNum === 1
-      ? `This is PART 1 of ${totalParts} of a longer affiliate video (~${pDur}s). Keep it one continuous take; end on smooth motion so PART 2 continues right after.`
-      : `This is PART ${partNum} of ${totalParts} — a DIRECT CONTINUATION of part ${partNum - 1}. It MUST connect seamlessly: SAME creator (identical face, hair, outfit), SAME product ${pName} (exact same look), SAME lighting, background and visual style, continuing the same motion & energy. When placed right AFTER part ${partNum - 1} on the timeline, the two clips must look like ONE continuous video.`;
+      ? `This is PART 1 of ${totalParts} of a longer affiliate video (~${pDur}s). Keep it ONE continuous take. VERY IMPORTANT for a smooth join: END the clip on a STEADY, held HAND-OFF FRAME — ${handoff} — hold this exact framing for the last ~0.5 second with minimal motion, so PART 2 can start from the identical frame.`
+      : `This is PART ${partNum} of ${totalParts} — a DIRECT CONTINUATION of part ${partNum - 1}, must look like the SAME unbroken video. VERY IMPORTANT: the FIRST frame must MATCH part ${partNum - 1}'s last frame as closely as possible — START on ${handoff} (identical composition, pose, lighting, background and camera), then smoothly continue into the action below. Keep SAME creator (identical face, hair, outfit) and SAME product ${pName} (exact same look). Do NOT reset the scene, do NOT cut to a different angle at the start.`;
     return `Create ONE continuous vertical 9:16 photorealistic affiliate video CLIP (~${pDur} seconds) — PART ${partNum}/${totalParts} of a video about ONE product only: ${pName}.
 ${connect}
 CRITICAL PRODUCT ACCURACY: the product MUST be an EXACT REPLICA of the attached reference image — same tube/bottle color, label text, typography, logo and design; do NOT recolor, redesign or make it generic/white.
 Single continuous take through these beats:
 ${beats}
-Keep the SAME creator identity, lighting mood and visual style. Final: one ~${pDur}-second clip, 9:16 vertical, photorealistic 8k, smooth motion.`;
+Keep the SAME creator identity, lighting mood and visual style, and a consistent camera distance so the two parts blend seamlessly. Final: one ~${pDur}-second clip, 9:16 vertical, photorealistic 8k, smooth motion.`;
   };
   const copyVideoPart = (partIdx: number) => {
     const parts = splitScenesForParts();

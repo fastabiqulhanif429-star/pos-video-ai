@@ -244,7 +244,22 @@ export default function App() {
   const [analyzingImage, setAnalyzingImage] = useState<boolean>(false);
   const [generatingNarrative, setGeneratingNarrative] = useState<boolean>(false);
   const [generatingBlueprint, setGeneratingBlueprint] = useState<boolean>(false);
-  
+  const [loadingMsgIdx, setLoadingMsgIdx] = useState<number>(0);
+  // Pesan+emote lucu yang muter pas blueprint lagi diproses
+  const BLUEPRINT_LOADING = [
+    { e: "🤖", t: "Robot lagi baca produk & naskah kamu..." },
+    { e: "✍️", t: "Nyusun hook 3 detik pertama biar nahan mata..." },
+    { e: "🎨", t: "Ngelukis visual prompt tiap scene..." },
+    { e: "🎬", t: "Nyocokin bahan (foto-video-foto) ke timeline..." },
+    { e: "💬", t: "Nyiapin teks overlay & CTA keranjang kuning..." },
+    { e: "✨", t: "Finishing... dikit lagi kelar!" },
+  ];
+  useEffect(() => {
+    if (!generatingBlueprint) { setLoadingMsgIdx(0); return; }
+    const id = setInterval(() => setLoadingMsgIdx((i) => (i + 1) % BLUEPRINT_LOADING.length), 1800);
+    return () => clearInterval(id);
+  }, [generatingBlueprint]);
+
   const [selectedSceneId, setSelectedSceneId] = useState<string>("scene-1");
   const [copiedSceneId, setCopiedSceneId] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<boolean>(false);
@@ -1068,7 +1083,9 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
         } else {
           showNotification("Naskah suara (Voice-Over) berhasil disusun dengan AI!", "success");
         }
+        return result.narrative as string;
       }
+      return "";
     } catch (error) {
       console.error(error);
       const isMale = gender === "male";
@@ -1077,6 +1094,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
         : `Sumpah ini racun banget bestie! ${name || "Produk Pilihan Baru"} ini didesain super modis dengan ${features || "bahan premium berkualitas tinggi"}. Sangat cocok buat ${audience || "kamu yang ingin tampil beda"}. Nyaman digunakan seharian penuh dan harganya ramah di kantong. Buruan cek keranjang kuning di bawah dan checkout sekarang juga ya!`;
       setDraftVoiceOver(fallbackVO);
       showNotification("Menyusun naskah promosi berkonversi tinggi (Profil Cepat)! 📝", "success");
+      return fallbackVO;
     } finally {
       setGeneratingNarrative(false);
     }
@@ -1644,10 +1662,13 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || "Gagal");
+      if (!data.productName && data.note) { showNotification(data.note, "error"); return; }
       if (data.productName) setProductName(data.productName);
       if (data.keyFeatures) setKeyFeatures(data.keyFeatures);
+      if (data.tone) setSelectedTone(data.tone);
+      if (data.textStyle) { setMainTextStyle(data.textStyle); setCreativeAccent(data.textStyle === "Sketch"); }
       setClassifyText("");
-      showNotification(data.isFallback ? "Nama & fitur keisi (profil cepat). Cek lagi ya." : "Nama & fitur keisi dari AI! 🧠", "success");
+      showNotification(data.isFallback ? "Nama, fitur, tone & gaya keisi (profil cepat)." : "Nama, fitur, tone & gaya teks keisi otomatis! 🧠", "success");
     } catch (e: any) {
       showNotification(e?.message || "Gagal klasifikasi.", "error");
     } finally {
@@ -1914,6 +1935,20 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
 
   // AI Service 3: Generate Video Blueprint JSON
   const generateVisualBlueprintAI = async () => {
+    // Kalau naskah suara masih kosong → butuh nama produk, lalu auto-bikin VO dulu
+    let voText = draftVoiceOver;
+    if (!voText.trim()) {
+      if (!productName.trim()) {
+        showNotification("Isi nama produk dulu ya (atau pilih dari Bank / Riset Produk).", "info");
+        return;
+      }
+      showNotification("Naskah suara kosong — AI bikinin dulu otomatis...", "info");
+      voText = await generateVoiceOverAI(productName, keyFeatures, targetAudience, userPromptContext, selectedTone);
+      if (!voText || !voText.trim()) {
+        showNotification("Gagal bikin naskah. Coba klik 'Buat AI' di bagian Naskah Suara.", "error");
+        return;
+      }
+    }
     setGeneratingBlueprint(true);
     showNotification("Menyusun durasi, hook, visual prompt & teks overlay...", "info");
     try {
@@ -1926,7 +1961,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
           productName: productName,
           keyFeatures: keyFeatures,
           targetAudience: targetAudience,
-          voiceOverText: draftVoiceOver,
+          voiceOverText: voText,
           creativeAccent: creativeAccent,
           mainTextStyle: mainTextStyle,
           hasImage: !!imageUrl,
@@ -2404,13 +2439,13 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
               {/* AI klasifikasi: tempel deskripsi Shopee → isiin Nama + Fitur */}
               <div className="bg-[#08090f]/70 border border-violet-500/20 rounded-xl p-3 space-y-1.5">
                 <label className="text-[10px] uppercase tracking-wider text-violet-300 font-mono font-bold flex items-center gap-1.5">
-                  <Sparkles className="w-3 h-3" /> Tempel deskripsi dari Shopee → AI isiin nama & fitur
+                  <Sparkles className="w-3 h-3" /> Tempel LINK produk / deskripsi Shopee → AI isiin nama & fitur
                 </label>
                 <textarea
                   rows={2}
                   value={classifyText}
                   onChange={(e) => setClassifyText(e.target.value)}
-                  placeholder="Salin deskripsi/judul produk dari Shopee, tempel di sini..."
+                  placeholder="Tempel link produk Shopee (shopee.co.id/...) ATAU deskripsi/judulnya di sini..."
                   className="w-full bg-[#0b0c15] border border-slate-800 focus:border-violet-500/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 placeholder:text-slate-600 outline-none resize-none"
                 />
                 <button
@@ -2651,11 +2686,11 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                     </div>
                   </div>
 
-                  {/* AI tone style parameters */}
-                  <div className="grid grid-cols-2 gap-3 pt-2">
+                  {/* AI tone style parameter */}
+                  <div className="pt-2">
                     <div className="space-y-1">
-                      <label className="text-[10px] uppercase tracking-wider text-slate-500 font-mono font-bold block">
-                        Gaya Tone Narasi
+                      <label className="text-[10px] uppercase tracking-wider text-slate-500 font-mono font-bold flex items-center gap-1.5">
+                        Gaya Tone Narasi <span className="normal-case tracking-normal text-[9px] text-violet-400">· auto dari AI, bisa diganti</span>
                       </label>
                       <select
                         value={selectedTone}
@@ -2667,19 +2702,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                         <option value="Diskon Gila & Mendesak (Urgensi)">Diskon Gila (Urgensi)</option>
                         <option value="Review Edukatif (Penjelasan Serius)">Review Edukatif (Serius)</option>
                       </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] uppercase tracking-wider text-slate-500 font-mono font-bold block">
-                        Catatan Tambahan (Opsional)
-                      </label>
-                      <input
-                        type="text"
-                        value={userPromptContext}
-                        onChange={(e) => setUserPromptContext(e.target.value)}
-                        placeholder="Misal: tambah diskon 50%"
-                        className="w-full text-xs bg-slate-900 border border-slate-800 text-slate-300 px-2.5 py-1.5 rounded-lg placeholder-slate-600"
-                      />
                     </div>
                   </div>
 
@@ -2841,7 +2863,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
 
             <button
               onClick={generateVisualBlueprintAI}
-              disabled={generatingBlueprint || !draftVoiceOver}
+              disabled={generatingBlueprint}
               className="w-full md:w-auto bg-gradient-to-r from-pink-500 to-violet-600 hover:from-pink-400 hover:to-violet-500 text-white font-extrabold text-xs px-6 py-3.5 rounded-xl shadow-lg hover:shadow-pink-500/20 flex items-center justify-center gap-2 transition-all shrink-0 active:scale-95"
             >
               {generatingBlueprint ? (
@@ -3383,19 +3405,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                   </div>
                 </div>
 
-                {/* Additional inputs inside modal for context */}
-                <div className="space-y-1.5 bg-slate-950/60 p-3 rounded-xl border border-slate-850">
-                  <label className="text-[10px] uppercase tracking-wider text-slate-400 font-mono font-bold block">
-                    Catatan Tambahan (Opsional)
-                  </label>
-                  <input
-                    type="text"
-                    value={userPromptContext}
-                    onChange={(e) => setUserPromptContext(e.target.value)}
-                    placeholder="Misal: tambahkan penekanan diskon 50% atau gratis ongkir..."
-                    className="w-full text-xs bg-slate-900 border border-slate-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-600"
-                  />
-                </div>
               </div>
 
               {/* Modal Footer */}
@@ -4306,6 +4315,40 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                   Selesai & Tutup Skenario
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* POPUP LOADING: lagi nyusun blueprint */}
+      <AnimatePresence>
+        {generatingBlueprint && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 15 }}
+              className="bg-gradient-to-b from-[#12101e] to-[#0b0c15] border border-violet-500/30 rounded-3xl w-full max-w-sm px-8 py-9 text-center shadow-2xl shadow-violet-500/10 relative overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-pink-500/5 via-violet-500/5 to-cyan-500/5 pointer-events-none" />
+              <motion.div
+                key={loadingMsgIdx}
+                initial={{ y: -8, scale: 0.8, opacity: 0 }}
+                animate={{ y: [0, -10, 0], scale: 1, opacity: 1 }}
+                transition={{ y: { repeat: Infinity, duration: 1.1, ease: "easeInOut" }, scale: { duration: 0.3 }, opacity: { duration: 0.3 } }}
+                className="text-6xl mb-4 select-none"
+              >
+                {BLUEPRINT_LOADING[loadingMsgIdx].e}
+              </motion.div>
+              <h3 className="text-lg font-extrabold text-white font-mono">Tunggu Ya, Lagi Diproses! ⏳</h3>
+              <motion.p key={`t-${loadingMsgIdx}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="text-[13px] text-slate-300 mt-2 min-h-[38px] px-2">
+                {BLUEPRINT_LOADING[loadingMsgIdx].t}
+              </motion.p>
+              {/* progress dots */}
+              <div className="flex items-center justify-center gap-1.5 mt-4">
+                {BLUEPRINT_LOADING.map((_, i) => (
+                  <span key={i} className={`h-1.5 rounded-full transition-all duration-300 ${i === loadingMsgIdx ? "w-5 bg-violet-400" : "w-1.5 bg-slate-700"}`} />
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-600 mt-4">AI lagi mikir keras... santai aja, bentar lagi 🎬</p>
             </motion.div>
           </div>
         )}

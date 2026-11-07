@@ -830,23 +830,56 @@ app.post("/api/fetch-image", async (req, res) => {
   }
 });
 
-// Endpoint 9: Klasifikasi produk — dari teks (deskripsi Shopee) ambil nama + fitur ringkas.
+// Ambil teks nama produk dari slug URL marketplace (biar bisa klasifikasi dari LINK, bukan cuma deskripsi).
+// Shopee: .../<slug>-i.<shopid>.<itemid> → slug = judul SEO pakai tanda '-'.
+function extractSlugText(input: string): string {
+  try {
+    const u = new URL(input.trim());
+    let path = decodeURIComponent(u.pathname);
+    let seg = path.split("/").filter(Boolean).pop() || "";
+    seg = seg.replace(/-i\.\d+\.\d+.*$/i, "");   // buang -i.<shopid>.<itemid>
+    seg = seg.replace(/\.\d+\.\d+$/, "");          // jaga-jaga pola id lain
+    seg = seg.replace(/\bp-i\b.*$/i, "");
+    const txt = seg.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+    return txt.length > 3 ? txt : "";
+  } catch { return ""; }
+}
+
+// Endpoint 9: Klasifikasi produk — dari teks deskripsi ATAU link produk Shopee (ambil nama dari slug URL).
 app.post("/api/classify-product", async (req, res) => {
   try {
     const { text } = req.body;
-    const src = (text || "").toString().trim().slice(0, 4000);
-    if (!src) return res.status(400).json({ error: "Teks kosong." });
+    const raw = (text || "").toString().trim();
+    if (!raw) return res.status(400).json({ error: "Teks/link kosong." });
+
+    // Deteksi link → ambil nama dari slug URL (isi halaman Shopee diblokir, tapi slug-nya ada judulnya)
+    const isUrl = /^https?:\/\//i.test(raw);
+    let src = raw.slice(0, 4000);
+    let fromLink = false;
+    if (isUrl) {
+      const slug = extractSlugText(raw);
+      if (!slug) {
+        return res.json({ productName: "", keyFeatures: "", note: "Link ini gak ada judul produk di URL-nya (format /product/id/id). Tempel JUDUL atau deskripsi produknya aja." });
+      }
+      src = slug;
+      fromLink = true;
+    }
 
     const prompt = `
-      Dari teks deskripsi produk marketplace (Shopee/TikTok) berikut, ambil:
+      ${fromLink
+        ? "Teks berikut adalah JUDUL/slug produk dari URL Shopee (kata-kata kunci SEO, dipisah spasi):"
+        : "Dari teks deskripsi produk marketplace (Shopee/TikTok) berikut:"}
+      Ambil:
       - productName: nama produk yang RINGKAS & jelas (merek + tipe, maksimal ~6 kata; jangan seluruh judul SEO yang panjang).
-      - keyFeatures: 1 kalimat ringkas fitur/manfaat utama produk (maksimal ~140 karakter), gaya natural.
-      Bahasa Indonesia. Jangan mengarang fitur yang tidak ada di teks.
+      - keyFeatures: 1 kalimat ringkas fitur/manfaat utama produk (maksimal ~140 karakter), gaya natural.${fromLink ? " Simpulkan fitur dari kata kunci yang ada; jangan ngarang klaim spesifik yang gak ada." : " Jangan mengarang fitur yang tidak ada di teks."}
+      - tone: pilih SATU gaya tone narasi yang PALING COCOK buat produk ini, PERSIS salah satu dari: "Racun TikTok (Gembira & Heboh)" | "Minimalis & Estetis (Suara Tenang)" | "Diskon Gila & Mendesak (Urgensi)" | "Review Edukatif (Penjelasan Serius)". (skincare/kecantikan premium → sering Minimalis/Estetis; produk rumah tangga/pembersih dgn efek wow → Racun TikTok; produk promo/murah → Diskon Gila; produk teknis/suplemen → Review Edukatif.)
+      - textStyle: pilih SATU gaya teks overlay, PERSIS salah satu dari: "Sketch" | "Punch" | "Cyber" | "Sticker". (skincare/estetik → Sketch; produk bold/promo → Punch; gadget/teknologi → Cyber; produk fun/playful → Sticker.)
+      Bahasa Indonesia.
 
       TEKS:
       """${src}"""
 
-      Balas JSON { "productName": "...", "keyFeatures": "..." }.
+      Balas JSON { "productName": "...", "keyFeatures": "...", "tone": "...", "textStyle": "..." }.
     `;
     const response = await generateWithFallback({
       contents: prompt,
@@ -854,24 +887,35 @@ app.post("/api/classify-product", async (req, res) => {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
-          properties: { productName: { type: Type.STRING }, keyFeatures: { type: Type.STRING } },
-          required: ["productName", "keyFeatures"],
+          properties: { productName: { type: Type.STRING }, keyFeatures: { type: Type.STRING }, tone: { type: Type.STRING }, textStyle: { type: Type.STRING } },
+          required: ["productName", "keyFeatures", "tone", "textStyle"],
         },
       },
     });
     const parsed = JSON.parse(response.text || "{}");
-    return res.json({ productName: parsed.productName || "", keyFeatures: parsed.keyFeatures || "" });
+    const TONES = ["Racun TikTok (Gembira & Heboh)", "Minimalis & Estetis (Suara Tenang)", "Diskon Gila & Mendesak (Urgensi)", "Review Edukatif (Penjelasan Serius)"];
+    const STYLES = ["Sketch", "Punch", "Cyber", "Sticker"];
+    const tone = TONES.includes(parsed.tone) ? parsed.tone : TONES[0];
+    const textStyle = STYLES.includes(parsed.textStyle) ? parsed.textStyle : STYLES[0];
+    return res.json({ productName: parsed.productName || "", keyFeatures: parsed.keyFeatures || "", tone, textStyle });
   } catch (error: any) {
     console.warn("Error classify-product, using fallback:", error?.message || error);
-    // Fallback tanpa AI: baris pertama = nama (potong), gabung baris fitur jadi 1 kalimat.
-    const src = (req.body?.text || "").toString().trim();
+    // Fallback tanpa AI: kalau link → ambil slug; else baris pertama = nama, baris '-' = fitur.
+    const raw = (req.body?.text || "").toString().trim();
+    const src = /^https?:\/\//i.test(raw) ? (extractSlugText(raw) || raw) : raw;
     const lines = src.split(/\n+/).map((l: string) => l.trim()).filter(Boolean);
     let name = (lines[0] || "Produk").replace(/\s+/g, " ").slice(0, 60);
     // ambil kata merek awal (sebelum tanda '/' atau '-')
     name = name.split(/[\/|]/)[0].trim().split(" ").slice(0, 6).join(" ");
     const featLines = lines.filter((l: string) => /^[-•*]/.test(l)).map((l: string) => l.replace(/^[-•*]\s*/, ""));
     const keyFeatures = (featLines.slice(0, 3).join(", ") || lines.slice(1, 3).join(" ")).slice(0, 140);
-    return res.json({ productName: name, keyFeatures, isFallback: true });
+    // Heuristik tone + style dari kata kunci
+    const low = src.toLowerCase();
+    let tone = "Racun TikTok (Gembira & Heboh)", textStyle = "Sketch";
+    if (/skincare|cream|serum|glow|wajah|kulit|pencerah|facial|lotion/.test(low)) { tone = "Minimalis & Estetis (Suara Tenang)"; textStyle = "Sketch"; }
+    else if (/diskon|promo|murah|hemat|flash\s*sale|obral/.test(low)) { tone = "Diskon Gila & Mendesak (Urgensi)"; textStyle = "Punch"; }
+    else if (/gadget|elektronik|charger|earphone|headset|smart|tech|lampu/.test(low)) { tone = "Review Edukatif (Penjelasan Serius)"; textStyle = "Cyber"; }
+    return res.json({ productName: name, keyFeatures, tone, textStyle, isFallback: true });
   }
 });
 

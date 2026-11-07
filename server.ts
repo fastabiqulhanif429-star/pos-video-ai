@@ -830,6 +830,98 @@ app.post("/api/fetch-image", async (req, res) => {
   }
 });
 
+// Endpoint 8: Import materi dari link produk Shopee / link gambar langsung.
+// Catatan: Shopee sering blokir akses otomatis dari server datacenter (Render) → bisa gagal.
+// Fallback: user paste link GAMBAR langsung (klik kanan foto → Salin alamat gambar).
+async function downloadAsDataUrl(url: string, maxBytes: number): Promise<{ dataUrl: string; mimeType: string; kind: "image" | "video" } | null> {
+  try {
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Referer": "https://shopee.co.id/",
+        "Accept": "image/avif,image/webp,image/png,image/jpeg,video/mp4,*/*",
+      },
+    });
+    if (!r.ok) return null;
+    const ct = r.headers.get("content-type") || "";
+    const kind: "image" | "video" = ct.startsWith("video/") ? "video" : "image";
+    if (!ct.startsWith("image/") && !ct.startsWith("video/")) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > maxBytes) return null; // kegedean
+    return { dataUrl: `data:${ct};base64,${buf.toString("base64")}`, mimeType: ct, kind };
+  } catch { return null; }
+}
+
+app.post("/api/import-materials", async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || typeof url !== "string" || !/^https?:\/\//i.test(url)) {
+      return res.status(400).json({ error: "Link tidak valid (harus diawali http/https)." });
+    }
+    const materials: { dataUrl: string; mimeType: string; kind: "image" | "video" }[] = [];
+
+    // 1) Deteksi link produk Shopee → ambil shopid & itemid
+    // Pola: ...-i.<shopid>.<itemid>  ATAU  /product/<shopid>/<itemid>
+    let shopId = "", itemId = "";
+    const m1 = url.match(/-i\.(\d+)\.(\d+)/);
+    const m2 = url.match(/\/product\/(\d+)\/(\d+)/);
+    if (m1) { shopId = m1[1]; itemId = m1[2]; }
+    else if (m2) { shopId = m2[1]; itemId = m2[2]; }
+
+    const isShopeeProduct = !!(shopId && itemId);
+    if (isShopeeProduct) {
+      // Coba Shopee item API (sering ke-blok dari IP datacenter)
+      try {
+        const apiUrl = `https://shopee.co.id/api/v4/item/get?itemid=${itemId}&shopid=${shopId}`;
+        const r = await fetch(apiUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            "Referer": url,
+            "x-api-source": "pc",
+            "x-shopee-language": "id",
+            "Accept": "application/json",
+          },
+          signal: AbortSignal.timeout(12000),
+        });
+        const j: any = await r.json().catch(() => null);
+        const data = j?.data;
+        const hashes: string[] = Array.isArray(data?.images) ? data.images : [];
+        // ambil maksimal 2 foto
+        for (const h of hashes.slice(0, 2)) {
+          const imgUrl = `https://down-id.img.susercontent.com/file/${h}`;
+          const dl = await downloadAsDataUrl(imgUrl, 12 * 1024 * 1024);
+          if (dl) materials.push(dl);
+        }
+        // video (kalau ada & gak kegedean)
+        const vlist = data?.video_info_list || [];
+        const vUrl = vlist?.[0]?.default_format?.url || vlist?.[0]?.video_url_list?.[0]?.video_url || "";
+        if (vUrl) {
+          const dlv = await downloadAsDataUrl(vUrl, 25 * 1024 * 1024);
+          if (dlv) materials.push(dlv);
+        }
+      } catch (e) {
+        // diabaikan → fallback di bawah
+      }
+      if (materials.length === 0) {
+        return res.json({
+          materials: [],
+          source: "shopee-blocked",
+          note: "Shopee blokir akses otomatis dari server. Buka produknya di Shopee → klik kanan FOTO → 'Salin alamat gambar' → tempel link gambarnya di sini (satu-satu).",
+        });
+      }
+      return res.json({ materials, source: "shopee-api", note: `${materials.length} materi berhasil diambil dari produk Shopee.` });
+    }
+
+    // 2) Link media langsung (gambar/video)
+    const dl = await downloadAsDataUrl(url, 25 * 1024 * 1024);
+    if (dl) return res.json({ materials: [dl], source: "direct", note: "Materi dari link langsung berhasil diambil." });
+    return res.json({ materials: [], source: "none", note: "Link bukan gambar/video langsung & bukan produk Shopee. Tempel link GAMBAR langsung (klik kanan foto → Salin alamat gambar)." });
+  } catch (error: any) {
+    console.warn("Error import materials:", error?.message || error);
+    return res.status(500).json({ error: "Gagal ambil materi dari link. Coba link gambar langsung." });
+  }
+});
+
 // Serve Vite in development, static files in production
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

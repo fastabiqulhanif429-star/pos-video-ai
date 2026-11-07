@@ -215,6 +215,8 @@ export default function App() {
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
   const [materialUrls, setMaterialUrls] = useState<{ foto1?: string; video?: string; foto2?: string }>({});
   const [uploadingSlot, setUploadingSlot] = useState<string | null>(null);
+  const [importUrl, setImportUrl] = useState<string>("");
+  const [importing, setImporting] = useState<boolean>(false);
 
   // Step 2: Naskah Voice over
   const [draftVoiceOver, setDraftVoiceOver] = useState<string>("");
@@ -1565,6 +1567,64 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
     persistBank(bankProducts.map((p) => p.id === selectedBankId ? { ...p, materials: { ...p.materials, [slot]: undefined } } : p));
     setMaterialUrls((prev) => { if (prev[slot]) URL.revokeObjectURL(prev[slot]!); const n = { ...prev }; delete n[slot]; return n; });
   };
+  // Import materi dari link produk Shopee / link gambar → auto-isi slot (foto1, foto2, video)
+  const importMaterialsFromLink = async () => {
+    const url = importUrl.trim();
+    if (!url) { showNotification("Tempel dulu link produk/gambarnya ya.", "info"); return; }
+    if (!productName.trim()) { showNotification("Isi nama produk dulu biar materinya masuk ke produk itu.", "info"); return; }
+    setImporting(true);
+    showNotification("Ngambil materi dari link...", "info");
+    try {
+      const resp = await fetch("/api/import-materials", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || "Gagal ambil materi");
+      const mats: { dataUrl: string; mimeType: string; kind: "image" | "video" }[] = data.materials || [];
+      if (mats.length === 0) { showNotification(data.note || "Gak ada materi dari link ini.", "error"); return; }
+
+      // pastikan ada produk (tanpa race state)
+      let pid = selectedBankId;
+      const working = [...bankProducts];
+      if (!pid) {
+        pid = `bp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        working.push({ id: pid, name: productName.trim(), features: keyFeatures.trim(), materials: {} });
+      }
+      const prod = working.find((p) => p.id === pid)!;
+
+      const imgs = mats.filter((m) => m.kind === "image");
+      const vids = mats.filter((m) => m.kind === "video");
+      const assign: ["foto1" | "foto2" | "video", typeof mats[number]][] = [];
+      const pslots: ("foto1" | "foto2")[] = ["foto1", "foto2"];
+      let pi = 0;
+      for (const im of imgs) { if (pi < 2) { assign.push([pslots[pi], im]); pi++; } }
+      if (vids[0]) assign.push(["video", vids[0]]);
+
+      const newUrls: Record<string, string> = {};
+      for (const [slot, mat] of assign) {
+        const blob = await (await fetch(mat.dataUrl)).blob();
+        await idbSet(`${pid}__${slot}`, blob);
+        prod.materials[slot] = { name: `${slot}.${(mat.mimeType.split("/")[1] || "bin")}`, type: mat.mimeType };
+        newUrls[slot] = URL.createObjectURL(blob);
+      }
+      persistBank(working);
+      setSelectedBankId(pid);
+      setProductName(prod.name);
+      setKeyFeatures(prod.features);
+      setMaterialUrls((prev) => {
+        Object.keys(newUrls).forEach((k) => { const u = (prev as any)[k]; if (u) URL.revokeObjectURL(u); });
+        return { ...prev, ...newUrls };
+      });
+      setImportUrl("");
+      showNotification(data.note || "Materi terisi otomatis! 📥", "success");
+    } catch (e: any) {
+      showNotification(e?.message || "Gagal ambil materi dari link.", "error");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const selectedBank = bankProducts.find((p) => p.id === selectedBankId) || null;
   const bankMaterialMeta = (slot: "foto1" | "video" | "foto2") => selectedBank?.materials[slot];
   const bankMissing = (): string[] => {
@@ -2177,11 +2237,11 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
       <div className="max-w-[1500px] mx-auto mb-6" id="main-tabs">
         <div className="bg-[#10111a]/95 border border-slate-800/80 rounded-2xl p-1.5 flex items-center gap-1.5 shadow-xl overflow-x-auto scrollbar-thin">
           {[
-            { id: "robot" as const, label: "Robot video", icon: Video, active: "from-pink-600 to-violet-600 shadow-pink-500/20", dot: "bg-pink-400" },
             { id: "strategi" as const, label: "Strategi AI", icon: Rocket, active: "from-violet-600 to-fuchsia-600 shadow-violet-500/20", dot: "bg-violet-400" },
-            { id: "riset" as const, label: "Riset Produk", icon: Target, active: "from-cyan-600 to-emerald-600 shadow-cyan-500/20", dot: "bg-cyan-400" },
+            { id: "robot" as const, label: "Robot video", icon: Video, active: "from-pink-600 to-violet-600 shadow-pink-500/20", dot: "bg-pink-400" },
             { id: "evalShopee" as const, label: "Evaluasi Shopee", icon: ShoppingBag, active: "from-orange-600 to-amber-600 shadow-orange-500/20", dot: "bg-orange-400" },
             { id: "evalFB" as const, label: "Evaluasi FB", icon: Globe, active: "from-blue-600 to-indigo-600 shadow-blue-500/20", dot: "bg-blue-400" },
+            { id: "riset" as const, label: "Riset Produk", icon: Target, active: "from-cyan-600 to-emerald-600 shadow-cyan-500/20", dot: "bg-cyan-400" },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeMainTab === tab.id;
@@ -2292,6 +2352,32 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                     ? <span className="text-[10px] font-mono text-amber-400">⚠️ Materi kurang: {miss.join(", ")}</span>
                     : <span className="text-[10px] font-mono text-emerald-400">✅ Materi lengkap (siap upload ke Flow)</span>;
                 })()}
+              </div>
+
+              {/* Tempel link produk Shopee / link gambar → auto-ambil materi */}
+              <div className="bg-[#08090f]/70 border border-cyan-500/20 rounded-xl p-3 space-y-1.5">
+                <label className="text-[10px] uppercase tracking-wider text-cyan-300 font-mono font-bold flex items-center gap-1.5">
+                  <Download className="w-3 h-3" /> Ambil materi dari link
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={importUrl}
+                    onChange={(e) => setImportUrl(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !importing) importMaterialsFromLink(); }}
+                    placeholder="Tempel link produk Shopee / link gambar (klik kanan foto → Salin alamat gambar)"
+                    className="flex-1 min-w-0 bg-[#0b0c15] border border-slate-800 focus:border-cyan-500/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 placeholder:text-slate-600 outline-none"
+                  />
+                  <button
+                    onClick={importMaterialsFromLink}
+                    disabled={importing}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600/80 hover:bg-cyan-500 text-white text-[12px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0"
+                  >
+                    {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    Ambil
+                  </button>
+                </div>
+                <p className="text-[9px] text-slate-600 leading-relaxed">⚠️ Link produk Shopee kadang diblokir server (anti-bot). Kalau gagal, buka produknya → klik kanan <b className="text-slate-500">foto</b> → "Salin alamat gambar" → tempel di sini (foto 1 & 2 satu-satu).</p>
               </div>
 
               {/* Slot upload materi (2 foto + 1 video) */}
@@ -4219,26 +4305,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                   <span>Robot nge-batch bagian yang berat: <b className="text-slate-300">naskah suara + blueprint + prompt "1 Video"</b> buat tiap produk. Render videonya tetap di Google Flow/Veo (tempel prompt + attach 3 bahan). Jadi lu dapet <b className="text-slate-300">stok prompt siap-tempel</b> sekali duduk, tinggal distribusi.</span>
                 </p>
 
-                {/* Form tambah ke antrean */}
-                <div className="bg-[#10111a]/60 border border-slate-850 rounded-xl p-4 space-y-3">
-                  <h4 className="text-[11px] font-mono font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> Tambah produk ke antrean</h4>
-                  <input
-                    type="text" value={queueForm.productName}
-                    onChange={(e) => setQueueForm({ ...queueForm, productName: e.target.value })}
-                    placeholder="Nama produk (wajib) — cth: Glad2Glow Tone Up Cream"
-                    className="w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:border-amber-500/60 outline-none"
-                  />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <input type="text" value={queueForm.keyFeatures} onChange={(e) => setQueueForm({ ...queueForm, keyFeatures: e.target.value })} placeholder="Fitur utama (opsional)" className="w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-[13px] text-slate-100 focus:border-amber-500/60 outline-none" />
-                    <input type="text" value={queueForm.targetAudience} onChange={(e) => setQueueForm({ ...queueForm, targetAudience: e.target.value })} placeholder="Target audiens (opsional)" className="w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-[13px] text-slate-100 focus:border-amber-500/60 outline-none" />
-                  </div>
-                  <input type="text" value={queueForm.photoUrl} onChange={(e) => setQueueForm({ ...queueForm, photoUrl: e.target.value })} placeholder="Link foto produk (opsional) — biar prompt ke-lock ke produk ini" className="w-full bg-[#0b0c15] border border-slate-800 rounded-lg px-3 py-2 text-[13px] text-slate-100 focus:border-amber-500/60 outline-none" />
-                  <p className="text-[10px] text-slate-600">Tone &amp; suara ngikutin setelan editor sekarang: <b className="text-slate-400">{selectedTone}</b> · {voiceGender === "male" ? "Laki-laki" : "Perempuan"}.</p>
-                  <button onClick={addToQueue} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-950/50 border border-amber-500/40 text-amber-300 hover:bg-amber-900/50 text-sm font-bold font-mono transition-all active:scale-[0.98]">
-                    <Plus className="w-4 h-4" /> Masukkan ke antrean
-                  </button>
-                </div>
-
                 {/* Kontrol proses */}
                 {queueItems.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
@@ -4258,8 +4324,8 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 {queueItems.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-10 text-center">
                     <Layers className="w-10 h-10 text-slate-700 mb-3" />
-                    <p className="text-sm text-slate-400 font-semibold">Antrean masih kosong</p>
-                    <p className="text-[11px] text-slate-600 mt-1 max-w-sm">Tambahin beberapa produk di atas (sekali duduk), lalu klik "Proses semua". Robot bikin stok prompt-nya berurutan — bisa ditinggal.</p>
+                    <p className="text-sm text-slate-400 font-semibold">Stok antrean masih kosong</p>
+                    <p className="text-[11px] text-slate-600 mt-1 max-w-sm">Tiap kali kamu klik <b className="text-slate-500">"Salin Prompt 1 Video"</b> di tab Robot video, videonya otomatis kekumpul di sini jadi stok siap-tempel.</p>
                   </div>
                 )}
 

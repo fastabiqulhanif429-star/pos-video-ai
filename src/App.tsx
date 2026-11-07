@@ -932,6 +932,49 @@ export default function App() {
 
   const openGoogleFlow = () => { try { window.open("https://labs.google/fx/tools/flow", "_blank", "noopener,noreferrer"); } catch (e) {} };
 
+  // Split scene jadi 2 bagian kalau durasi >10 dtk (Flow max 10 dtk/klip): part1 = scene selesai ≤10s, part2 = sisanya
+  const splitScenesForParts = (): any[][] => {
+    const sc = blueprint.scenes || [];
+    if (sc.length <= 1) return [sc];
+    const part1: any[] = [], part2: any[] = [];
+    sc.forEach((s) => {
+      const end = parseFloat((String(s.timestamp || "").match(/-\s*([\d.]+)\s*s/) || [])[1] || "0");
+      if (end <= 10.0001) part1.push(s); else part2.push(s);
+    });
+    if (part1.length === 0) { part1.push(sc[0]); part2.shift(); }
+    if (part2.length === 0) return [sc];
+    return [part1, part2];
+  };
+  // Prompt 1 bagian (continuous) — part2 nyambung mulus dari part1 biar pas digabung jadi 1 video
+  const buildPartPrompt = (partScenes: any[], partNum: number, totalParts: number): string => {
+    const pName = productName || "the product";
+    const start = parseFloat((String(partScenes[0]?.timestamp || "").match(/([\d.]+)\s*s/) || [])[1] || "0");
+    const end = parseFloat((String(partScenes[partScenes.length - 1]?.timestamp || "").match(/-\s*([\d.]+)\s*s/) || [])[1] || "0");
+    const pDur = Math.max(3, Math.round(end - start));
+    const beats = partScenes.map((s) => `• ${s.timestamp} — ${s.title}: ${s.visualPrompt} On-screen text: "${s.textOverlay}". Voice-over: "${s.voiceOverSegment}". Audio: ${s.audioCue}.`).join("\n");
+    const connect = partNum === 1
+      ? `This is PART 1 of ${totalParts} of a longer affiliate video (~${pDur}s). Keep it one continuous take; end on smooth motion so PART 2 continues right after.`
+      : `This is PART ${partNum} of ${totalParts} — a DIRECT CONTINUATION of part ${partNum - 1}. It MUST connect seamlessly: SAME creator (identical face, hair, outfit), SAME product ${pName} (exact same look), SAME lighting, background and visual style, continuing the same motion & energy. When placed right AFTER part ${partNum - 1} on the timeline, the two clips must look like ONE continuous video.`;
+    return `Create ONE continuous vertical 9:16 photorealistic affiliate video CLIP (~${pDur} seconds) — PART ${partNum}/${totalParts} of a video about ONE product only: ${pName}.
+${connect}
+CRITICAL PRODUCT ACCURACY: the product MUST be an EXACT REPLICA of the attached reference image — same tube/bottle color, label text, typography, logo and design; do NOT recolor, redesign or make it generic/white.
+Single continuous take through these beats:
+${beats}
+Keep the SAME creator identity, lighting mood and visual style. Final: one ~${pDur}-second clip, 9:16 vertical, photorealistic 8k, smooth motion.`;
+  };
+  const copyVideoPart = (partIdx: number) => {
+    const parts = splitScenesForParts();
+    if (parts.length < 2) { copySingleVideoPrompt(); return; }
+    const prompt = buildPartPrompt(parts[partIdx], partIdx + 1, parts.length);
+    navigator.clipboard.writeText(prompt);
+    if (partIdx === 0) {
+      showNotification("Prompt VIDEO 1 disalin! Siapin foto, lalu generate di Flow. 🎬", "success");
+      setPopupPhoto(""); setPopupPhotoLink(""); setPhotoPopupOpen(true);
+    } else {
+      showNotification("Prompt VIDEO 2 (sambungan) disalin! Generate di Flow, lalu taruh SETELAH Video 1 di timeline. 🎬", "success");
+    }
+  };
+
   // Popup foto produk: upload file / tempel link → preview → download → ke Flow
   const handlePopupUpload = (file: File) => {
     const reader = new FileReader();
@@ -3316,14 +3359,33 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                     <Download className="w-3.5 h-3.5 text-emerald-400" />
                     Unduh JSON
                   </button>
-                  <button
-                    onClick={copySingleVideoPrompt}
-                    className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:opacity-90 text-white px-4 py-2 rounded-xl font-mono font-bold transition-all shadow-md shadow-emerald-500/20 active:scale-95"
-                    title="Salin prompt 1 video utuh + buka wizard materi"
-                  >
-                    <Video className="w-3.5 h-3.5" />
-                    SALIN PROMPT 1 VIDEO
-                  </button>
+                  {videoDuration > 10 ? (
+                    <>
+                      <button
+                        onClick={() => copyVideoPart(0)}
+                        className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:opacity-90 text-white px-3.5 py-2 rounded-xl font-mono font-bold transition-all shadow-md shadow-emerald-500/20 active:scale-95"
+                        title="Salin prompt Video 1 (bagian pertama) + siapin foto"
+                      >
+                        <Video className="w-3.5 h-3.5" /> SALIN VIDEO 1
+                      </button>
+                      <button
+                        onClick={() => copyVideoPart(1)}
+                        className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1.5 bg-gradient-to-r from-cyan-600 to-violet-600 hover:opacity-90 text-white px-3.5 py-2 rounded-xl font-mono font-bold transition-all shadow-md shadow-cyan-500/20 active:scale-95"
+                        title="Salin prompt Video 2 (sambungan) — taruh setelah Video 1 di timeline"
+                      >
+                        <Video className="w-3.5 h-3.5" /> SALIN VIDEO 2 (sambungan)
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={copySingleVideoPrompt}
+                      className="flex-1 sm:flex-none text-xs flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:opacity-90 text-white px-4 py-2 rounded-xl font-mono font-bold transition-all shadow-md shadow-emerald-500/20 active:scale-95"
+                      title="Salin prompt 1 video utuh + siapin foto"
+                    >
+                      <Video className="w-3.5 h-3.5" />
+                      SALIN PROMPT 1 VIDEO
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -3336,7 +3398,9 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 </div>
               </div>
               <p className="text-[10px] text-slate-500 leading-normal mt-2.5">
-                💡 Pakai <b className="text-slate-300">"SALIN PROMPT 1 VIDEO"</b> — 1 prompt jadi 1 video ~{videoDuration} detik. Google Flow kebuka otomatis, tinggal tempel (Cmd+V) & generate. Max 15 detik; kalau mau lebih panjang, bikin video kedua terpisah.
+                💡 {videoDuration > 10
+                  ? <>Durasi {videoDuration} dtk &gt; 10 dtk → Flow gak bisa 1 klip. Pakai <b className="text-slate-300">"SALIN VIDEO 1"</b> & <b className="text-slate-300">"SALIN VIDEO 2 (sambungan)"</b>: generate dua-duanya di Flow (Video 2 nyambung dari Video 1), lalu gabung urut di timeline → jadi 1 video mulus.</>
+                  : <>Pakai <b className="text-slate-300">"SALIN PROMPT 1 VIDEO"</b> — 1 prompt jadi 1 video ~{videoDuration} detik, tempel (Cmd+V) & generate di Flow (1 klip langsung jadi).</>}
               </p>
             </div>
           )}

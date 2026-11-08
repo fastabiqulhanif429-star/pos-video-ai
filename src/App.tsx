@@ -1945,6 +1945,21 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
     if (!p.phases || p.phases.length === 0) return `Target komisi: Rp${(strategyTargetRp || 0).toLocaleString("id-ID")}/bln, niche: ${strategyNiche || "-"}, akun terhubung: ${strategyAccounts}.`;
     return `Target Rp${(p.goalRp || strategyTargetRp || 0).toLocaleString("id-ID")}/bln, ${strategyAccounts} akun. Fase: ${(p.phases || []).map((ph: any) => `${ph.week}: ${ph.title}`).join("; ")}.`;
   };
+  const buildBrainstormSummary = (ctx: "strategi" | "produksi"): string => {
+    // produksi ambil insight dari brainstorm strategi; strategi ambil dari produksi
+    const other: "strategi" | "produksi" = ctx === "produksi" ? "strategi" : "produksi";
+    const lines: string[] = [];
+    (brainstormThreads[other] || []).filter((m) => m.role === "ai").slice(-6).forEach((m) => {
+      const bits: string[] = [];
+      if (m.text) bits.push(m.text);
+      if (m.suggestion) bits.push(`(saran: ${m.suggestion})`);
+      if (bits.length) lines.push(`- ${bits.join(" ")}`);
+    });
+    if (ctx === "produksi" && strategyInsights.length) {
+      strategyInsights.slice(-5).forEach((s) => lines.push(`- [insight strategi dipakai] ${s}`));
+    }
+    return lines.join("\n").slice(0, 1400);
+  };
   const persistBrainstorm = (next: { strategi: BsMsg[]; produksi: BsMsg[] }) => {
     setBrainstormThreads(next);
     try { safeStorage.setItem("affos_brainstorm", JSON.stringify(next)); } catch (e) {}
@@ -1973,6 +1988,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
           product: { name: productName, features: keyFeatures },
           evalSummary: buildEvalSummary(),
           strategySummary: buildStrategySummary(),
+          brainstormSummary: buildBrainstormSummary(ctx),
         }),
       });
       const data = await resp.json();

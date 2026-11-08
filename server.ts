@@ -856,7 +856,7 @@ function extractSlugText(input: string): string {
 // Endpoint 11: Brainstorm AI — partner ngobrol (Strategi / Produksi) balas insight + 1 pertanyaan + saran konkret.
 app.post("/api/brainstorm", async (req, res) => {
   try {
-    const { context, message, history, product, evalSummary, strategySummary } = req.body;
+    const { context, message, history, product, evalSummary, strategySummary, brainstormSummary } = req.body;
     const ctx = context === "produksi" ? "produksi" : "strategi";
     const hist = Array.isArray(history)
       ? history.slice(-12).map((m: any) => (m.role === "user" ? `USER: ${m.text}` : `AI: ${m.text}${m.question ? ` [tanya: ${m.question}]` : ""}`)).join("\n")
@@ -865,6 +865,7 @@ app.post("/api/brainstorm", async (req, res) => {
     const prod = product ? `Produk: ${product.name || "-"}${product.features ? ` — ${product.features}` : ""}` : "";
     const evalBlock = (evalSummary || "").toString().slice(0, 1200) || "(belum ada data evaluasi)";
     const stratBlock = (strategySummary || "").toString().slice(0, 1200) || "(belum ada strategi)";
+    const bsBlock = (brainstormSummary || "").toString().slice(0, 1400);
 
     const persona = ctx === "produksi"
       ? `Kamu partner BRAINSTORMING PRODUKSI VIDEO affiliate buat creator solo. Tugas: bantu PERBAIKI naskah/hook/angle/visual prompt video BERDASARKAN INSIGHT EVALUASI performa (views/CTR/konversi). Ngobrol santai bahasa Indonesia, to-the-point, SELALU berbasis data evaluasi + produk (JANGAN generik).`
@@ -874,6 +875,7 @@ app.post("/api/brainstorm", async (req, res) => {
       (prod ? `${prod}\n` : "") +
       `DATA EVALUASI (views/klik/konversi/komisi + diagnosa):\n${evalBlock}\n\n` +
       (ctx === "strategi" ? `STRATEGI SAAT INI:\n${stratBlock}\n\n` : "") +
+      (bsBlock ? `INSIGHT DARI BRAINSTORM ${ctx === "produksi" ? "STRATEGI" : "PRODUKSI"} (hasil obrolan brainstorm sebelumnya — pakai ini sebagai konteks tambahan):\n${bsBlock}\n\n` : "") +
       `OBROLAN SEJAUH INI:\n${hist || "(baru mulai)"}\n\n` +
       (msg ? `PESAN TERBARU USER: "${msg}"\n\n` : `(User baru buka panel, obrolan kosong — buka dengan 1 observasi TAJAM dari data + 1 pertanyaan buat mancing arah.)\n\n`) +
       `Balas JSON: {"insight":"1-3 kalimat tanggapan/analisa nyambung sama data + obrolan","question":"1 pertanyaan FOKUS buat lanjutin brainstorm","suggestion":"${ctx === "produksi" ? "1 saran KONKRET buat update naskah/hook/visual prompt (kalau udah ada yg jelas; kosongin kalau belum)" : "1 next-move strategi konkret (kalau udah jelas; kosongin kalau belum)"}"}. ` +

@@ -411,6 +411,16 @@ export default function App() {
     try { const s = safeStorage.getItem("affos_eval"); return s ? JSON.parse(s) : { shopee: [], fb: [] }; } catch (e) { return { shopee: [], fb: [] }; }
   });
   const [evalForm, setEvalForm] = useState({ title: "", views: "", clicks: "", orders: "", komisi: "" });
+
+  // ===== BRAINSTORM AI (Strategi + Produksi) =====
+  type BsMsg = { role: "user" | "ai"; text: string; question?: string; suggestion?: string };
+  const [brainstormOpen, setBrainstormOpen] = useState<boolean>(false);
+  const [brainstormContext, setBrainstormContext] = useState<"strategi" | "produksi">("strategi");
+  const [brainstormInput, setBrainstormInput] = useState<string>("");
+  const [brainstormLoading, setBrainstormLoading] = useState<boolean>(false);
+  const [brainstormThreads, setBrainstormThreads] = useState<{ strategi: BsMsg[]; produksi: BsMsg[] }>(() => {
+    try { const s = safeStorage.getItem("affos_brainstorm"); return s ? JSON.parse(s) : { strategi: [], produksi: [] }; } catch (e) { return { strategi: [], produksi: [] }; }
+  });
   const [strategyData, setStrategyData] = useState<{
     phases: any[];
     tips: string;
@@ -1916,6 +1926,79 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
     };
   };
 
+  // ===== BRAINSTORM AI handlers =====
+  const buildEvalSummary = (): string => {
+    const lines: string[] = [];
+    (["shopee", "fb"] as const).forEach((plat) => {
+      const list = evalData[plat] || [];
+      if (!list.length) return;
+      lines.push(`[${plat === "shopee" ? "Shopee" : "FB Reels"}]`);
+      list.slice(0, 8).forEach((e) => {
+        const ctr = e.views ? ((e.clicks / e.views) * 100).toFixed(1) : "0";
+        lines.push(`- "${e.title}": ${e.views} views, ${e.clicks} klik (CTR ${ctr}%), ${e.orders} order, komisi Rp${e.komisi} → ${diagnoseEval(e).verdict}`);
+      });
+    });
+    return lines.join("\n");
+  };
+  const buildStrategySummary = (): string => {
+    const p = strategyData;
+    if (!p.phases || p.phases.length === 0) return `Target komisi: Rp${(strategyTargetRp || 0).toLocaleString("id-ID")}/bln, niche: ${strategyNiche || "-"}, akun terhubung: ${strategyAccounts}.`;
+    return `Target Rp${(p.goalRp || strategyTargetRp || 0).toLocaleString("id-ID")}/bln, ${strategyAccounts} akun. Fase: ${(p.phases || []).map((ph: any) => `${ph.week}: ${ph.title}`).join("; ")}.`;
+  };
+  const persistBrainstorm = (next: { strategi: BsMsg[]; produksi: BsMsg[] }) => {
+    setBrainstormThreads(next);
+    try { safeStorage.setItem("affos_brainstorm", JSON.stringify(next)); } catch (e) {}
+  };
+  const openBrainstorm = (ctx: "strategi" | "produksi") => {
+    setBrainstormContext(ctx);
+    setBrainstormInput("");
+    setBrainstormOpen(true);
+    if ((brainstormThreads[ctx] || []).length === 0) setTimeout(() => sendBrainstorm("", ctx), 100);
+  };
+  const sendBrainstorm = async (overrideMsg?: string, ctxArg?: "strategi" | "produksi") => {
+    const ctx = ctxArg || brainstormContext;
+    const msg = (overrideMsg ?? brainstormInput).trim();
+    const thread = brainstormThreads[ctx] || [];
+    if (!msg && thread.length > 0) return;
+    setBrainstormLoading(true);
+    let working = { ...brainstormThreads };
+    if (msg) { working = { ...working, [ctx]: [...thread, { role: "user", text: msg } as BsMsg] }; persistBrainstorm(working); setBrainstormInput(""); }
+    try {
+      const resp = await fetch("/api/brainstorm", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          context: ctx,
+          message: msg,
+          history: working[ctx],
+          product: { name: productName, features: keyFeatures },
+          evalSummary: buildEvalSummary(),
+          strategySummary: buildStrategySummary(),
+        }),
+      });
+      const data = await resp.json();
+      const aiMsg: BsMsg = { role: "ai", text: data.insight || "", question: data.question || "", suggestion: data.suggestion || "" };
+      persistBrainstorm({ ...working, [ctx]: [...working[ctx], aiMsg] });
+    } catch (e) {
+      showNotification("Gagal konek brainstorm. Coba lagi.", "error");
+    } finally {
+      setBrainstormLoading(false);
+    }
+  };
+  const clearBrainstorm = () => {
+    if (!window.confirm("Reset obrolan brainstorm ini?")) return;
+    persistBrainstorm({ ...brainstormThreads, [brainstormContext]: [] });
+  };
+  const applyBrainstormSuggestion = (text: string) => {
+    if (!text) return;
+    if (brainstormContext === "produksi") {
+      setUserPromptContext(text);
+      showNotification("Saran jadi catatan AI buat naskah. Buka Robot video → klik 'Buat AI' buat update naskah. 📝", "success");
+    } else {
+      setStrategyInsights((prev) => { const n = [...prev, text].slice(-15); try { safeStorage.setItem("affos_strategy_insights", JSON.stringify(n)); } catch (e) {} return n; });
+      showNotification("Saran ditambah ke insight strategi. Bikin ulang strategi buat nerapin. 🚀", "success");
+    }
+  };
+
   const COLOR_MAP: Record<string, string> = {
     amber: "text-amber-300 bg-amber-950/30 border-amber-500/30",
     orange: "text-orange-300 bg-orange-950/30 border-orange-500/30",
@@ -2663,6 +2746,13 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                       >
                         <Sparkles className="w-3 h-3 text-pink-300" />
                         Pilih Gaya AI ✨
+                      </button>
+                      <button
+                        onClick={() => openBrainstorm("produksi")}
+                        className="text-xs flex items-center gap-1 bg-cyan-950/50 border border-cyan-500/40 text-cyan-200 hover:bg-cyan-900/50 font-semibold px-2.5 py-1.5 rounded-lg transition-all"
+                        title="Brainstorm perbaikan naskah/hook dari insight evaluasi kamu"
+                      >
+                        💬 Brainstorm
                       </button>
                     </div>
                   </div>
@@ -4477,6 +4567,76 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
         )}
       </AnimatePresence>
 
+      {/* MODAL: BRAINSTORM AI */}
+      <AnimatePresence>
+        {brainstormOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="brainstorm-modal">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
+            >
+              <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-2 rounded-lg text-white shadow-lg bg-gradient-to-br ${brainstormContext === "produksi" ? "from-pink-500 to-violet-600" : "from-violet-500 to-fuchsia-600"}`}>💬</div>
+                  <div>
+                    <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-100">Brainstorm {brainstormContext === "produksi" ? "Produksi" : "Strategi"} AI</h3>
+                    <p className="text-[10px] text-slate-400">{brainstormContext === "produksi" ? "Perbaiki naskah/hook dari insight evaluasi kamu" : "Ngobrol strategi berbasis data evaluasi"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={clearBrainstorm} className="text-[10px] font-mono text-slate-400 hover:text-rose-400 border border-slate-800 px-2 py-1 rounded-lg">🗑 Reset</button>
+                  <button onClick={() => setBrainstormOpen(false)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all"><X className="w-4 h-4" /></button>
+                </div>
+              </div>
+
+              {/* thread */}
+              <div className="p-4 overflow-y-auto flex-1 scrollbar-thin space-y-3 min-h-[260px]" id="bs-thread">
+                {(brainstormThreads[brainstormContext] || []).length === 0 && !brainstormLoading && (
+                  <div className="text-center py-10 text-[12px] text-slate-500">AI bakal buka obrolan dari data kamu...</div>
+                )}
+                {(brainstormThreads[brainstormContext] || []).map((m, i) => (
+                  m.role === "user" ? (
+                    <div key={i} className="flex justify-end">
+                      <div className="bg-violet-900/50 border border-violet-700/40 text-slate-100 rounded-2xl rounded-br-sm px-3.5 py-2 max-w-[82%] text-[12.5px] leading-relaxed">{m.text}</div>
+                    </div>
+                  ) : (
+                    <div key={i} className="flex justify-start">
+                      <div className="bg-[#10111a] border border-slate-800 rounded-2xl rounded-bl-sm px-3.5 py-2.5 max-w-[88%] text-[12.5px] leading-relaxed">
+                        <p className="text-slate-200">💡 {m.text}</p>
+                        {m.question && <p className="mt-2 text-sky-300">❓ {m.question}</p>}
+                        {m.suggestion && (
+                          <div className="mt-2.5 pt-2 border-t border-slate-800">
+                            <p className="text-[11px] text-emerald-300 mb-1.5">✅ Saran: {m.suggestion}</p>
+                            <button onClick={() => applyBrainstormSuggestion(m.suggestion!)} className="text-[10px] font-mono font-bold text-emerald-300 bg-emerald-950/40 border border-emerald-500/40 px-2 py-1 rounded-lg hover:bg-emerald-900/40 transition-all">
+                              {brainstormContext === "produksi" ? "📝 Pakai buat naskah" : "🚀 Jadiin insight strategi"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                ))}
+                {brainstormLoading && <div className="text-[12px] text-slate-500 px-1">🤖 mikir…</div>}
+              </div>
+
+              {/* input */}
+              <div className="px-4 py-3 border-t border-slate-800/60 bg-slate-950/30 shrink-0 flex gap-2">
+                <input
+                  type="text" value={brainstormInput}
+                  onChange={(e) => setBrainstormInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !brainstormLoading) sendBrainstorm(); }}
+                  placeholder="Tulis pesan / ide kamu..."
+                  className="flex-1 min-w-0 bg-[#0b0c15] border border-slate-800 focus:border-violet-500/60 rounded-lg px-3 py-2 text-[12.5px] text-slate-100 placeholder:text-slate-600 outline-none"
+                />
+                <button onClick={() => sendBrainstorm()} disabled={brainstormLoading} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white text-[12px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0">
+                  {brainstormLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* POPUP: AMBIL FOTO PRODUK (setelah salin prompt) */}
       <AnimatePresence>
         {photoPopupOpen && (
@@ -4701,19 +4861,28 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                     </div>
                     <p className="text-[10px] text-slate-600 mt-1">Baru 1 akun kehubung? Strateginya bakal fokus 1 akun utama dulu + warm-up akun lain (biar gak kewalahan).</p>
                   </div>
-                  <button
-                    onClick={() => generateStrategy()}
-                    disabled={generatingStrategy}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white text-sm font-bold font-mono hover:from-violet-500 hover:to-fuchsia-500 shadow-lg shadow-violet-500/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {generatingStrategy ? (
-                      <><Loader2 className="w-4 h-4 animate-spin" /> Menyusun...</>
-                    ) : strategyData.phases.length > 0 ? (
-                      <><RefreshCw className="w-4 h-4" /> Bikin ulang strategi</>
-                    ) : (
-                      <><Rocket className="w-4 h-4" /> Bikin strategi AI</>
-                    )}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => generateStrategy()}
+                      disabled={generatingStrategy}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white text-sm font-bold font-mono hover:from-violet-500 hover:to-fuchsia-500 shadow-lg shadow-violet-500/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {generatingStrategy ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Menyusun...</>
+                      ) : strategyData.phases.length > 0 ? (
+                        <><RefreshCw className="w-4 h-4" /> Bikin ulang strategi</>
+                      ) : (
+                        <><Rocket className="w-4 h-4" /> Bikin strategi AI</>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => openBrainstorm("strategi")}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-violet-950/50 border border-violet-500/40 text-violet-200 text-sm font-bold font-mono hover:bg-violet-900/50 transition-all active:scale-95 shrink-0"
+                      title="Brainstorm strategi bareng AI (berbasis data evaluasi)"
+                    >
+                      💬 Brainstorm
+                    </button>
+                  </div>
                   <p className="text-[10px] text-slate-500 leading-relaxed flex items-start gap-1.5">
                     <Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />
                     Ini saran strategi berbasis pola yang terbukti, <b className="text-slate-400">bukan jaminan cuan</b>. Cuan affiliate = komisi per penjualan; kuncinya konsistensi + hook + link affiliate kepasang.

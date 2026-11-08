@@ -853,6 +853,56 @@ function extractSlugText(input: string): string {
 
 // Endpoint 9: Klasifikasi produk — dari teks deskripsi ATAU link produk Shopee (ambil nama dari slug URL).
 // Endpoint 10: Translate visual prompt Bahasa Indonesia → English sinematik (buat Veo/Flow).
+// Endpoint 11: Brainstorm AI — partner ngobrol (Strategi / Produksi) balas insight + 1 pertanyaan + saran konkret.
+app.post("/api/brainstorm", async (req, res) => {
+  try {
+    const { context, message, history, product, evalSummary, strategySummary } = req.body;
+    const ctx = context === "produksi" ? "produksi" : "strategi";
+    const hist = Array.isArray(history)
+      ? history.slice(-12).map((m: any) => (m.role === "user" ? `USER: ${m.text}` : `AI: ${m.text}${m.question ? ` [tanya: ${m.question}]` : ""}`)).join("\n")
+      : "";
+    const msg = (message || "").toString().trim();
+    const prod = product ? `Produk: ${product.name || "-"}${product.features ? ` — ${product.features}` : ""}` : "";
+    const evalBlock = (evalSummary || "").toString().slice(0, 1200) || "(belum ada data evaluasi)";
+    const stratBlock = (strategySummary || "").toString().slice(0, 1200) || "(belum ada strategi)";
+
+    const persona = ctx === "produksi"
+      ? `Kamu partner BRAINSTORMING PRODUKSI VIDEO affiliate buat creator solo. Tugas: bantu PERBAIKI naskah/hook/angle/visual prompt video BERDASARKAN INSIGHT EVALUASI performa (views/CTR/konversi). Ngobrol santai bahasa Indonesia, to-the-point, SELALU berbasis data evaluasi + produk (JANGAN generik).`
+      : `Kamu partner BRAINSTORMING STRATEGI affiliate (TikTok/Shopee/FB) buat creator solo. Ngobrol santai bahasa Indonesia, to-the-point, SELALU berbasis data strategi + evaluasi (JANGAN generik).`;
+    const prompt =
+      `${persona}\n\n` +
+      (prod ? `${prod}\n` : "") +
+      `DATA EVALUASI (views/klik/konversi/komisi + diagnosa):\n${evalBlock}\n\n` +
+      (ctx === "strategi" ? `STRATEGI SAAT INI:\n${stratBlock}\n\n` : "") +
+      `OBROLAN SEJAUH INI:\n${hist || "(baru mulai)"}\n\n` +
+      (msg ? `PESAN TERBARU USER: "${msg}"\n\n` : `(User baru buka panel, obrolan kosong — buka dengan 1 observasi TAJAM dari data + 1 pertanyaan buat mancing arah.)\n\n`) +
+      `Balas JSON: {"insight":"1-3 kalimat tanggapan/analisa nyambung sama data + obrolan","question":"1 pertanyaan FOKUS buat lanjutin brainstorm","suggestion":"${ctx === "produksi" ? "1 saran KONKRET buat update naskah/hook/visual prompt (kalau udah ada yg jelas; kosongin kalau belum)" : "1 next-move strategi konkret (kalau udah jelas; kosongin kalau belum)"}"}. ` +
+      `Aturan: grounded ke data real, pertanyaan WAJIB cuma 1, suggestion boleh kosong string kalau belum mateng.`;
+
+    const response = await generateWithFallback({
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: { insight: { type: Type.STRING }, question: { type: Type.STRING }, suggestion: { type: Type.STRING } },
+          required: ["insight", "question", "suggestion"],
+        },
+      },
+    });
+    const o = JSON.parse(response.text || "{}");
+    return res.json({ insight: o.insight || "", question: o.question || "", suggestion: o.suggestion || "" });
+  } catch (error: any) {
+    console.warn("Error brainstorm:", error?.message || error);
+    return res.json({
+      insight: "Model AI lagi sibuk/kuota abis. Sambil nunggu: cek video dengan retensi bagus tapi CTR rendah — biasanya masalah di CTA/soft-selling, bukan hook.",
+      question: "Dari evaluasi kamu, video mana yang views-nya oke tapi kliknya dikit?",
+      suggestion: "",
+      isFallback: true,
+    });
+  }
+});
+
 app.post("/api/translate-prompt", async (req, res) => {
   try {
     const text = (req.body?.text || "").toString().trim().slice(0, 2000);

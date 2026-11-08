@@ -2061,9 +2061,16 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
     finally { setHookLoading(false); }
   };
   const useHookForScript = (text: string) => {
-    setUserPromptContext(`Pakai hook pembuka ini (persis): "${text}"`);
+    const hook = (text || "").trim();
+    if (!hook) return;
+    // Masukin hook LANGSUNG jadi pembuka naskah yang lagi diedit (nggak nimpa isi, cuma prepend)
+    setDraftVoiceOver((prev) => {
+      const body = (prev || "").trim();
+      return body ? `${hook}\n\n${body}` : hook;
+    });
+    setUserPromptContext(`Pakai hook pembuka ini (persis): "${hook}"`); // tetep kesimpen buat "Buat AI" nanti
     setHookOpen(false);
-    showNotification("Hook dipasang ke catatan naskah. Buka Robot video → 'Buat AI' buat update naskah. 🎯", "success");
+    showNotification("Hook dimasukin jadi pembuka naskah. 🎯 Cek kotak Naskah Suara.", "success");
   };
 
   // ===== CAPTION & HASHTAG handlers =====
@@ -4829,7 +4836,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 ))}
               </div>
               <div className="px-4 py-2.5 border-t border-slate-800/60 bg-slate-950/30 shrink-0">
-                <p className="text-[10px] text-slate-500 flex items-start gap-1.5"><Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />"Ke naskah" bikin hook jadi pembuka — buka Robot video → "Buat AI" buat update naskah ngikut hook ini.</p>
+                <p className="text-[10px] text-slate-500 flex items-start gap-1.5"><Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />"Ke naskah" langsung masukin hook jadi pembuka di kotak Naskah Suara (isi naskahmu nggak keilangan, cuma ketambahan di depan).</p>
               </div>
             </motion.div>
           </div>

@@ -395,11 +395,11 @@ export default function App() {
   });
 
   // Tab utama: Robot video (editor) / Strategi AI / Riset Produk / Evaluasi Shopee / Evaluasi FB
-  const [activeMainTab, setActiveMainTab] = useState<"robot" | "strategi" | "riset" | "evalShopee" | "evalFB">(() => {
+  const [activeMainTab, setActiveMainTab] = useState<"robot" | "strategi" | "riset" | "evalShopee" | "evalFB" | "setoran">(() => {
     const t = safeStorage.getItem("affos_active_tab");
-    return (["strategi", "riset", "evalShopee", "evalFB"].includes(t || "") ? t : "robot") as any;
+    return (["strategi", "riset", "evalShopee", "evalFB", "setoran"].includes(t || "") ? t : "robot") as any;
   });
-  const switchTab = (t: "robot" | "strategi" | "riset" | "evalShopee" | "evalFB") => {
+  const switchTab = (t: "robot" | "strategi" | "riset" | "evalShopee" | "evalFB" | "setoran") => {
     setActiveMainTab(t as any);
     try { safeStorage.setItem("affos_active_tab", t); } catch (e) {}
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -435,6 +435,15 @@ export default function App() {
   const [captionOpen, setCaptionOpen] = useState<boolean>(false);
   const [captionLoading, setCaptionLoading] = useState<boolean>(false);
   const [captionData, setCaptionData] = useState<{ shopee: CapPlat; tiktok: CapPlat; fb: CapPlat } | null>(null);
+
+  // ===== SETORAN (video jadi → siap posting native ke akun) =====
+  type SetoranItem = { id: string; productName: string; features?: string; voiceOver?: string; createdAt: string; videoName?: string; caption?: { shopee: CapPlat; fb: CapPlat } | null; posted: { shopee: boolean; fb: boolean } };
+  const [setoranItems, setSetoranItems] = useState<SetoranItem[]>(() => {
+    try { const s = safeStorage.getItem("affos_setoran"); return s ? JSON.parse(s) : []; } catch (e) { return []; }
+  });
+  const [setoranUrls, setSetoranUrls] = useState<Record<string, string>>({});
+  const [setoranCapLoading, setSetoranCapLoading] = useState<string>("");
+  const setoranInputRef = useRef<HTMLInputElement | null>(null);
   const [strategyData, setStrategyData] = useState<{
     phases: any[];
     tips: string;
@@ -2082,6 +2091,68 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
     showNotification(`Caption ${label} disalin! Tinggal paste pas posting. 📋`, "success");
   };
 
+  // ===== SETORAN handlers =====
+  const persistSetoran = (list: SetoranItem[]) => { setSetoranItems(list); try { safeStorage.setItem("affos_setoran", JSON.stringify(list)); } catch (e) {} };
+  // load object URL buat tiap video yg belum ada url-nya
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const it of setoranItems) {
+        if (setoranUrls[it.id]) continue;
+        try { const blob = await idbGet(`setoran__${it.id}`); if (blob && !cancelled) setSetoranUrls((prev) => (prev[it.id] ? prev : { ...prev, [it.id]: URL.createObjectURL(blob) })); } catch (e) {}
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [setoranItems]);
+  const onSetoranFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (!file) return;
+    const id = `st_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    try { await idbSet(`setoran__${id}`, file); } catch (err) { showNotification("Gagal simpen video (file mungkin kegedean buat browser).", "error"); return; }
+    const item: SetoranItem = {
+      id, productName: productName.trim() || file.name.replace(/\.[^.]+$/, ""),
+      features: keyFeatures.trim(), voiceOver: draftVoiceOver, createdAt: new Date().toISOString(),
+      videoName: file.name, caption: null, posted: { shopee: false, fb: false },
+    };
+    persistSetoran([item, ...setoranItems]);
+    setSetoranUrls((prev) => ({ ...prev, [id]: URL.createObjectURL(file) }));
+    showNotification("Video jadi masuk Setoran! 📥 Bikin caption terus posting.", "success");
+  };
+  const genSetoranCaption = async (it: SetoranItem) => {
+    setSetoranCapLoading(it.id);
+    try {
+      const resp = await fetch("/api/caption", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productName: it.productName, keyFeatures: it.features, voiceOver: it.voiceOver }),
+      });
+      const data = await resp.json();
+      persistSetoran(setoranItems.map((x) => x.id === it.id ? { ...x, caption: { shopee: data.shopee, fb: data.fb } } : x));
+      if (data.isFallback) showNotification("AI lagi sibuk/kuota — caption template. Bisa generate lagi.", "info");
+    } catch (e) { showNotification("Gagal bikin caption. Coba lagi.", "error"); }
+    finally { setSetoranCapLoading(""); }
+  };
+  const toggleSetoranPosted = (id: string, plat: "shopee" | "fb") => {
+    persistSetoran(setoranItems.map((x) => x.id === id ? { ...x, posted: { ...x.posted, [plat]: !x.posted[plat] } } : x));
+  };
+  const renameSetoran = (id: string, name: string) => {
+    persistSetoran(setoranItems.map((x) => x.id === id ? { ...x, productName: name } : x));
+  };
+  const downloadSetoran = (it: SetoranItem) => {
+    const url = setoranUrls[it.id];
+    if (!url) { showNotification("Video belum siap. Tunggu sebentar.", "info"); return; }
+    const a = document.createElement("a");
+    a.href = url; a.download = it.videoName || `${it.productName || "video"}.mp4`;
+    document.body.appendChild(a); a.click(); a.remove();
+    showNotification("Download video dimulai. 💾", "success");
+  };
+  const deleteSetoran = async (id: string) => {
+    if (!window.confirm("Hapus video ini dari Setoran?")) return;
+    try { await idbDel(`setoran__${id}`); } catch (e) {}
+    setSetoranUrls((prev) => { if (prev[id]) URL.revokeObjectURL(prev[id]); const n = { ...prev }; delete n[id]; return n; });
+    persistSetoran(setoranItems.filter((x) => x.id !== id));
+  };
+
   const COLOR_MAP: Record<string, string> = {
     amber: "text-amber-300 bg-amber-950/30 border-amber-500/30",
     orange: "text-orange-300 bg-orange-950/30 border-orange-500/30",
@@ -2650,6 +2721,7 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
           {[
             { id: "strategi" as const, label: "Strategi AI", icon: Rocket, active: "from-violet-600 to-fuchsia-600 shadow-violet-500/20", dot: "bg-violet-400" },
             { id: "robot" as const, label: "Robot video", icon: Video, active: "from-pink-600 to-violet-600 shadow-pink-500/20", dot: "bg-pink-400" },
+            { id: "setoran" as const, label: "Setoran", icon: Upload, active: "from-emerald-600 to-teal-600 shadow-emerald-500/20", dot: "bg-emerald-400" },
             { id: "evalShopee" as const, label: "Evaluasi Shopee", icon: ShoppingBag, active: "from-orange-600 to-amber-600 shadow-orange-500/20", dot: "bg-orange-400" },
             { id: "evalFB" as const, label: "Evaluasi FB", icon: Globe, active: "from-blue-600 to-indigo-600 shadow-blue-500/20", dot: "bg-blue-400" },
             { id: "riset" as const, label: "Riset Produk", icon: Target, active: "from-cyan-600 to-emerald-600 shadow-cyan-500/20", dot: "bg-cyan-400" },
@@ -2673,6 +2745,9 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 {(tab.id === "strategi" || tab.id === "riset") && <span className="text-[8px] bg-white/20 px-1 py-0.5 rounded">AI</span>}
                 {(tab.id === "evalShopee" || tab.id === "evalFB") && evalData[tab.id === "evalShopee" ? "shopee" : "fb"].length > 0 && (
                   <span className="text-[8px] bg-white/20 px-1 py-0.5 rounded">{evalData[tab.id === "evalShopee" ? "shopee" : "fb"].length}</span>
+                )}
+                {tab.id === "setoran" && setoranItems.length > 0 && (
+                  <span className="text-[8px] bg-white/20 px-1 py-0.5 rounded">{setoranItems.length}</span>
                 )}
               </button>
             );
@@ -5482,6 +5557,112 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
         {activeMainTab === "evalFB" && (
           <div className="max-w-[1500px] mx-auto" id="eval-fb-tab">
             {renderEvalPanel("fb")}
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ===== TAB: SETORAN (video jadi → siap posting) ===== */}
+      <AnimatePresence>
+        {activeMainTab === "setoran" && (
+          <div className="max-w-[1500px] mx-auto" id="setoran-tab">
+            <input ref={setoranInputRef} type="file" accept="video/*" onChange={onSetoranFile} className="hidden" />
+            <div className="bg-[#10111a]/95 border border-slate-800/80 rounded-2xl p-5 shadow-xl mb-5">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2.5 rounded-xl text-white shadow-lg bg-gradient-to-br from-emerald-500 to-teal-600"><Upload className="w-5 h-5" /></div>
+                  <div>
+                    <h2 className="text-base font-extrabold text-slate-100 font-mono">Setoran — Video Siap Posting</h2>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Video yang udah jadi dari Flow → download + caption siap copy → posting native & setor ke akun.</p>
+                  </div>
+                </div>
+                <button onClick={() => setoranInputRef.current?.click()} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-[12.5px] font-bold font-mono shadow-lg active:scale-95 transition-all">
+                  <Upload className="w-4 h-4" /> Tambah video jadi
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500 flex items-start gap-1.5 mt-3">
+                <Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />
+                Pas klik "Tambah", nama produk &amp; naskah diambil dari editor Robot video sekarang. Jadi isi dulu produknya di Robot video sebelum render &amp; setor biar caption-nya nyambung.
+              </p>
+            </div>
+
+            {setoranItems.length === 0 ? (
+              <div className="text-center py-16 text-slate-500">
+                <Upload className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p className="text-sm font-semibold">Belum ada video di Setoran.</p>
+                <p className="text-[12px] mt-1">Abis render video di Google Flow &amp; download, klik "Tambah video jadi" buat masukin ke sini.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {setoranItems.map((it) => {
+                  const fullyPosted = it.posted.shopee && it.posted.fb;
+                  return (
+                    <div key={it.id} className={`bg-[#10111a]/95 border rounded-2xl overflow-hidden shadow-xl ${fullyPosted ? "border-emerald-600/50" : "border-slate-800/80"}`}>
+                      <div className="flex gap-3 p-3.5">
+                        <div className="w-28 shrink-0">
+                          {setoranUrls[it.id] ? (
+                            <video src={setoranUrls[it.id]} controls className="w-28 h-44 object-cover rounded-xl bg-black border border-slate-800" />
+                          ) : (
+                            <div className="w-28 h-44 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-600"><Loader2 className="w-5 h-5 animate-spin" /></div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0 flex flex-col">
+                          <input
+                            value={it.productName}
+                            onChange={(e) => renameSetoran(it.id, e.target.value)}
+                            className="w-full bg-transparent text-[13.5px] font-bold text-slate-100 border-b border-transparent hover:border-slate-800 focus:border-emerald-500 outline-none pb-0.5"
+                          />
+                          <p className="text-[10px] text-slate-500 mt-1 truncate">🎬 {it.videoName || "video"}</p>
+                          <div className="flex gap-1.5 mt-2">
+                            <button onClick={() => downloadSetoran(it)} className="flex items-center gap-1 text-[10.5px] font-mono font-bold text-sky-200 bg-sky-950/50 border border-sky-500/40 px-2.5 py-1.5 rounded-lg hover:bg-sky-900/50"><Download className="w-3 h-3" /> Download</button>
+                            <button onClick={() => deleteSetoran(it.id)} className="text-[10.5px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1.5 rounded-lg hover:text-rose-400">🗑</button>
+                          </div>
+                          {/* checklist posting */}
+                          <div className="mt-auto pt-2.5">
+                            <p className="text-[9px] uppercase tracking-wider text-slate-500 font-mono mb-1.5">Status setor:</p>
+                            <div className="flex gap-1.5">
+                              {([["shopee", "🛒 Shopee"], ["fb", "📘 FB Reels"]] as const).map(([k, lbl]) => (
+                                <button key={k} onClick={() => toggleSetoranPosted(it.id, k)} className={`flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-1 rounded-lg border transition-all ${it.posted[k] ? "text-emerald-200 bg-emerald-950/50 border-emerald-500/50" : "text-slate-400 bg-slate-900 border-slate-800 hover:border-slate-700"}`}>
+                                  {it.posted[k] ? <CheckCircle className="w-3 h-3" /> : <span className="w-3 h-3 rounded-full border border-current inline-block" />} {lbl}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* caption area */}
+                      <div className="border-t border-slate-800/60 bg-slate-950/30 p-3.5">
+                        {!it.caption ? (
+                          <button onClick={() => genSetoranCaption(it)} disabled={setoranCapLoading === it.id} className="w-full flex items-center justify-center gap-1.5 text-[12px] font-bold font-mono text-emerald-200 bg-emerald-950/40 border border-emerald-500/40 px-3 py-2 rounded-lg hover:bg-emerald-900/40 disabled:opacity-60">
+                            {setoranCapLoading === it.id ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Bikin caption…</> : <>#️⃣ Bikin caption (Shopee + FB)</>}
+                          </button>
+                        ) : (
+                          <div className="space-y-2.5">
+                            {([["shopee", "🛒 Shopee Video"], ["fb", "📘 FB Reels"]] as const).map(([k, lbl]) => {
+                              const p = it.caption![k];
+                              if (!p) return null;
+                              return (
+                                <div key={k} className="bg-[#10111a] border border-slate-800 rounded-xl overflow-hidden">
+                                  <div className="px-3 py-1.5 bg-slate-900/50 border-b border-slate-800 flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-slate-200">{lbl}</span>
+                                    <button onClick={() => copyCaption(p, lbl)} className="text-[9.5px] font-mono font-bold text-emerald-200 bg-emerald-950/50 border border-emerald-500/40 px-2 py-0.5 rounded hover:bg-emerald-900/50">📋 Salin</button>
+                                  </div>
+                                  <div className="px-3 py-2">
+                                    <p className="text-[12px] text-slate-100 leading-relaxed whitespace-pre-wrap">{p.caption}</p>
+                                    {(p.hashtags || []).length > 0 && <p className="mt-1.5 text-[10.5px] text-emerald-300/90 leading-relaxed">{(p.hashtags || []).join(" ")}</p>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            <button onClick={() => genSetoranCaption(it)} disabled={setoranCapLoading === it.id} className="text-[10px] font-mono text-slate-400 hover:text-emerald-300 disabled:opacity-50">{setoranCapLoading === it.id ? "…" : "🔄 Bikin ulang caption"}</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </AnimatePresence>

@@ -421,6 +421,20 @@ export default function App() {
   const [brainstormThreads, setBrainstormThreads] = useState<{ strategi: BsMsg[]; produksi: BsMsg[] }>(() => {
     try { const s = safeStorage.getItem("affos_brainstorm"); return s ? JSON.parse(s) : { strategi: [], produksi: [] }; } catch (e) { return { strategi: [], produksi: [] }; }
   });
+
+  // ===== BANK HOOK =====
+  type HookItem = { text: string; style: string };
+  const [hookOpen, setHookOpen] = useState<boolean>(false);
+  const [hookLoading, setHookLoading] = useState<boolean>(false);
+  const [hookList, setHookList] = useState<HookItem[]>(() => {
+    try { const s = safeStorage.getItem("affos_hooks"); return s ? JSON.parse(s) : []; } catch (e) { return []; }
+  });
+
+  // ===== CAPTION & HASHTAG per platform =====
+  type CapPlat = { caption: string; hashtags: string[] };
+  const [captionOpen, setCaptionOpen] = useState<boolean>(false);
+  const [captionLoading, setCaptionLoading] = useState<boolean>(false);
+  const [captionData, setCaptionData] = useState<{ shopee: CapPlat; tiktok: CapPlat; fb: CapPlat } | null>(null);
   const [strategyData, setStrategyData] = useState<{
     phases: any[];
     tips: string;
@@ -2015,6 +2029,59 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
     }
   };
 
+  // ===== BANK HOOK handlers =====
+  const persistHooks = (list: HookItem[]) => { setHookList(list); try { safeStorage.setItem("affos_hooks", JSON.stringify(list)); } catch (e) {} };
+  const openHooks = () => {
+    if (!productName.trim()) { showNotification("Isi nama produk dulu ya (atau pilih dari Riset Produk).", "info"); return; }
+    setHookOpen(true);
+    if (hookList.length === 0) generateHooks();
+  };
+  const generateHooks = async () => {
+    if (!productName.trim()) { showNotification("Isi nama produk dulu ya.", "info"); return; }
+    setHookLoading(true);
+    try {
+      const resp = await fetch("/api/hooks", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productName, keyFeatures, targetAudience, evalHint: buildEvalSummary().slice(0, 600) }),
+      });
+      const data = await resp.json();
+      persistHooks(Array.isArray(data.hooks) ? data.hooks : []);
+      if (data.isFallback) showNotification("AI lagi sibuk/kuota — ini hook template. Coba generate lagi nanti.", "info");
+    } catch (e) { showNotification("Gagal bikin hook. Coba lagi.", "error"); }
+    finally { setHookLoading(false); }
+  };
+  const useHookForScript = (text: string) => {
+    setUserPromptContext(`Pakai hook pembuka ini (persis): "${text}"`);
+    setHookOpen(false);
+    showNotification("Hook dipasang ke catatan naskah. Buka Robot video → 'Buat AI' buat update naskah. 🎯", "success");
+  };
+
+  // ===== CAPTION & HASHTAG handlers =====
+  const openCaption = () => {
+    if (!productName.trim()) { showNotification("Isi nama produk dulu ya.", "info"); return; }
+    setCaptionOpen(true);
+    if (!captionData) generateCaption();
+  };
+  const generateCaption = async () => {
+    if (!productName.trim()) { showNotification("Isi nama produk dulu ya.", "info"); return; }
+    setCaptionLoading(true);
+    try {
+      const resp = await fetch("/api/caption", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productName, keyFeatures, targetAudience, hook: userPromptContext, voiceOver: draftVoiceOver }),
+      });
+      const data = await resp.json();
+      setCaptionData({ shopee: data.shopee, tiktok: data.tiktok, fb: data.fb });
+      if (data.isFallback) showNotification("AI lagi sibuk/kuota — ini caption template. Coba lagi nanti.", "info");
+    } catch (e) { showNotification("Gagal bikin caption. Coba lagi.", "error"); }
+    finally { setCaptionLoading(false); }
+  };
+  const copyCaption = (p: CapPlat, label: string) => {
+    const txt = `${p.caption}\n\n${(p.hashtags || []).join(" ")}`.trim();
+    navigator.clipboard.writeText(txt);
+    showNotification(`Caption ${label} disalin! Tinggal paste pas posting. 📋`, "success");
+  };
+
   const COLOR_MAP: Record<string, string> = {
     amber: "text-amber-300 bg-amber-950/30 border-amber-500/30",
     orange: "text-orange-300 bg-orange-950/30 border-orange-500/30",
@@ -2769,6 +2836,20 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                         title="Brainstorm perbaikan naskah/hook dari insight evaluasi kamu"
                       >
                         💬 Brainstorm
+                      </button>
+                      <button
+                        onClick={openHooks}
+                        className="text-xs flex items-center gap-1 bg-amber-950/50 border border-amber-500/40 text-amber-200 hover:bg-amber-900/50 font-semibold px-2.5 py-1.5 rounded-lg transition-all"
+                        title="Bikin banyak variasi hook pembuka buat produk ini"
+                      >
+                        🪝 Bank Hook
+                      </button>
+                      <button
+                        onClick={openCaption}
+                        className="text-xs flex items-center gap-1 bg-emerald-950/50 border border-emerald-500/40 text-emerald-200 hover:bg-emerald-900/50 font-semibold px-2.5 py-1.5 rounded-lg transition-all"
+                        title="Bikin caption + hashtag buat Shopee Video / TikTok / FB Reels"
+                      >
+                        #️⃣ Caption
                       </button>
                     </div>
                   </div>
@@ -4647,6 +4728,103 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 <button onClick={() => sendBrainstorm()} disabled={brainstormLoading} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white text-[12px] font-bold font-mono transition-all active:scale-95 disabled:opacity-60 shrink-0">
                   {brainstormLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: BANK HOOK */}
+      <AnimatePresence>
+        {hookOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="hook-modal">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
+            >
+              <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg text-white shadow-lg bg-gradient-to-br from-amber-500 to-orange-600">🪝</div>
+                  <div>
+                    <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-100">Bank Hook</h3>
+                    <p className="text-[10px] text-slate-400">Variasi hook pembuka buat {productName || "produk"} — pilih yg paling nendang</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={generateHooks} disabled={hookLoading} className="text-[10px] font-mono text-amber-300 hover:text-amber-200 border border-amber-800/60 px-2 py-1 rounded-lg disabled:opacity-50">{hookLoading ? "…" : "🔄 Baru"}</button>
+                  <button onClick={() => setHookOpen(false)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all"><X className="w-4 h-4" /></button>
+                </div>
+              </div>
+              <div className="p-4 overflow-y-auto flex-1 scrollbar-thin space-y-2 min-h-[260px]">
+                {hookLoading && hookList.length === 0 && <div className="text-center py-10 text-[12px] text-slate-500"><Loader2 className="w-5 h-5 animate-spin inline mr-2" />Bikin hook…</div>}
+                {!hookLoading && hookList.length === 0 && <div className="text-center py-10 text-[12px] text-slate-500">Belum ada hook. Klik "🔄 Baru".</div>}
+                {hookList.map((h, i) => (
+                  <div key={i} className="group bg-[#10111a] border border-slate-800 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5 hover:border-amber-500/40 transition-all">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] text-slate-100 font-semibold leading-snug">{h.text}</p>
+                      {h.style && <span className="inline-block mt-1 text-[9px] font-mono uppercase tracking-wide text-amber-400/80 bg-amber-950/40 border border-amber-500/20 px-1.5 py-0.5 rounded">{h.style}</span>}
+                    </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button onClick={() => { navigator.clipboard.writeText(h.text); showNotification("Hook disalin! 📋", "success"); }} className="text-[10px] font-mono text-slate-300 bg-slate-900 border border-slate-800 px-2 py-1 rounded-lg hover:bg-slate-850">Salin</button>
+                      <button onClick={() => useHookForScript(h.text)} className="text-[10px] font-mono font-bold text-amber-200 bg-amber-950/50 border border-amber-500/40 px-2 py-1 rounded-lg hover:bg-amber-900/50 whitespace-nowrap">🎯 Ke naskah</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="px-4 py-2.5 border-t border-slate-800/60 bg-slate-950/30 shrink-0">
+                <p className="text-[10px] text-slate-500 flex items-start gap-1.5"><Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />"Ke naskah" bikin hook jadi pembuka — buka Robot video → "Buat AI" buat update naskah ngikut hook ini.</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: CAPTION & HASHTAG per platform */}
+      <AnimatePresence>
+        {captionOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm" id="caption-modal">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-[#0b0c15] border border-slate-800/90 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
+            >
+              <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between bg-[#10111a] shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg text-white shadow-lg bg-gradient-to-br from-emerald-500 to-teal-600">#️⃣</div>
+                  <div>
+                    <h3 className="text-sm font-extrabold uppercase tracking-wider font-mono text-slate-100">Caption &amp; Hashtag</h3>
+                    <p className="text-[10px] text-slate-400">Siap posting di Shopee Video · TikTok · FB Reels</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={generateCaption} disabled={captionLoading} className="text-[10px] font-mono text-emerald-300 hover:text-emerald-200 border border-emerald-800/60 px-2 py-1 rounded-lg disabled:opacity-50">{captionLoading ? "…" : "🔄 Baru"}</button>
+                  <button onClick={() => setCaptionOpen(false)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-all"><X className="w-4 h-4" /></button>
+                </div>
+              </div>
+              <div className="p-4 overflow-y-auto flex-1 scrollbar-thin space-y-3 min-h-[260px]">
+                {captionLoading && !captionData && <div className="text-center py-10 text-[12px] text-slate-500"><Loader2 className="w-5 h-5 animate-spin inline mr-2" />Bikin caption…</div>}
+                {captionData && ([
+                  { key: "shopee" as const, label: "Shopee Video", emoji: "🛒", color: "orange" },
+                  { key: "tiktok" as const, label: "TikTok", emoji: "🎵", color: "fuchsia" },
+                  { key: "fb" as const, label: "FB Reels", emoji: "📘", color: "sky" },
+                ]).map(({ key, label, emoji }) => {
+                  const p = captionData[key];
+                  if (!p) return null;
+                  return (
+                    <div key={key} className="bg-[#10111a] border border-slate-800 rounded-xl overflow-hidden">
+                      <div className="px-3.5 py-2 bg-slate-900/50 border-b border-slate-800 flex items-center justify-between">
+                        <span className="text-[12px] font-bold text-slate-200">{emoji} {label}</span>
+                        <button onClick={() => copyCaption(p, label)} className="text-[10px] font-mono font-bold text-emerald-200 bg-emerald-950/50 border border-emerald-500/40 px-2.5 py-1 rounded-lg hover:bg-emerald-900/50">📋 Salin</button>
+                      </div>
+                      <div className="px-3.5 py-2.5">
+                        <p className="text-[12.5px] text-slate-100 leading-relaxed whitespace-pre-wrap">{p.caption}</p>
+                        {(p.hashtags || []).length > 0 && <p className="mt-2 text-[11px] text-emerald-300/90 leading-relaxed">{(p.hashtags || []).join(" ")}</p>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="px-4 py-2.5 border-t border-slate-800/60 bg-slate-950/30 shrink-0">
+                <p className="text-[10px] text-slate-500 flex items-start gap-1.5"><Info className="w-3 h-3 text-slate-600 mt-0.5 shrink-0" />Caption nyesuain gaya tiap platform + ngikut naskah kamu. "Salin" nyalin caption + hashtag sekaligus.</p>
               </div>
             </motion.div>
           </div>

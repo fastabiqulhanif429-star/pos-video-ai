@@ -905,6 +905,107 @@ app.post("/api/brainstorm", async (req, res) => {
   }
 });
 
+// ====== BANK HOOK: banyak variasi hook ID buat 1 produk ======
+app.post("/api/hooks", async (req, res) => {
+  try {
+    const { productName, keyFeatures, targetAudience, angle, evalHint, n } = req.body || {};
+    const name = (productName || "").toString().trim() || "produk ini";
+    const feat = (keyFeatures || "").toString().trim();
+    const aud = (targetAudience || "").toString().trim();
+    const ang = (angle || "").toString().trim();
+    const hint = (evalHint || "").toString().slice(0, 600);
+    const count = Math.min(Math.max(parseInt(n) || 12, 6), 18);
+    const prompt =
+      `Kamu copywriter hook video affiliate (Shopee Video / TikTok / FB Reels) Bahasa Indonesia yang jago bikin orang BERHENTI scroll di 2 detik pertama.\n\n` +
+      `PRODUK: ${name}${feat ? `\nFITUR/KEUNGGULAN: ${feat}` : ""}${aud ? `\nTARGET PENONTON: ${aud}` : ""}${ang ? `\nANGLE: ${ang}` : ""}\n` +
+      (hint ? `INSIGHT dari evaluasi video sebelumnya — TERAPIN (perbaiki yg gagal, ulangi yg works): ${hint}\n` : "") +
+      `\nTulis ${count} hook BERBEDA-BEDA gaya. Aturan:\n` +
+      `- Bahasa Indonesia, gaya ngomong natural (bukan kaku iklan), maks ~12 kata.\n` +
+      `- Front-load: 3 kata pertama WAJIB nangkep perhatian.\n` +
+      `- Variasikan gaya: rasa penasaran, problem-solution, angka/hasil, kontroversi ringan, relate ke masalah sehari-hari, before-after, "jangan beli sebelum...", POV.\n` +
+      `- JUJUR: DILARANG ngarang klaim medis/BPOM/garansi palsu, "100% sembuh", "dijamin putih permanen", atau fitur yg gak ada. Soft-selling, fokus manfaat nyata.\n` +
+      `- Tiap hook kasih tag gaya singkat (1-2 kata) biar user gampang milih.\n` +
+      `Balas JSON: {"hooks":[{"text":"...","style":"..."}]}`;
+    const response = await generateWithFallback({
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            hooks: {
+              type: Type.ARRAY,
+              items: { type: Type.OBJECT, properties: { text: { type: Type.STRING }, style: { type: Type.STRING } }, required: ["text", "style"] },
+            },
+          },
+          required: ["hooks"],
+        },
+      },
+    });
+    const o = JSON.parse(response.text || "{}");
+    const hooks = (Array.isArray(o.hooks) ? o.hooks : [])
+      .map((h: any) => ({ text: (h.text || "").toString().trim(), style: (h.style || "").toString().trim() }))
+      .filter((h: any) => h.text && h.text.length <= 140);
+    if (!hooks.length) throw new Error("kosong");
+    return res.json({ hooks });
+  } catch (error: any) {
+    console.warn("Error hooks:", error?.message || error);
+    const nm = (req.body?.productName || "produk ini").toString().trim();
+    return res.json({
+      isFallback: true,
+      hooks: [
+        { text: `Aku kira ${nm} cuma gimmick… ternyata`, style: "penasaran" },
+        { text: `Stop beli ${nm} sebelum nonton ini`, style: "kontroversi" },
+        { text: `${nm} ini yang bikin aku nyesel gak beli dari dulu`, style: "relate" },
+        { text: `POV: kamu baru tau fungsi asli ${nm}`, style: "POV" },
+        { text: `3 alasan ${nm} worth it banget`, style: "angka" },
+        { text: `Sebelum vs sesudah pakai ${nm}`, style: "before-after" },
+        { text: `Masalah ini kelar gara-gara ${nm}`, style: "problem-solution" },
+        { text: `Nggak nyangka ${nm} seenak/sebagus ini`, style: "reaksi" },
+      ],
+    });
+  }
+});
+
+// ====== CAPTION + HASHTAG per platform (Shopee Video / TikTok / FB Reels) ======
+app.post("/api/caption", async (req, res) => {
+  try {
+    const { productName, keyFeatures, targetAudience, hook, voiceOver } = req.body || {};
+    const name = (productName || "").toString().trim() || "produk ini";
+    const feat = (keyFeatures || "").toString().trim();
+    const aud = (targetAudience || "").toString().trim();
+    const hk = (hook || "").toString().trim().slice(0, 160);
+    const vo = (voiceOver || "").toString().trim().slice(0, 700);
+    const prompt =
+      `Kamu social media manager affiliate. Bikin caption + hashtag buat 1 video yang mau diposting di 3 platform: Shopee Video, TikTok, FB Reels.\n\n` +
+      `PRODUK: ${name}${feat ? `\nKEUNGGULAN: ${feat}` : ""}${aud ? `\nTARGET: ${aud}` : ""}${hk ? `\nHOOK VIDEO: ${hk}` : ""}${vo ? `\nISI NASKAH: ${vo}` : ""}\n\n` +
+      `Bahasa Indonesia natural. Sesuaikan GAYA tiap platform:\n` +
+      `- shopee: soft-selling jualan, sebut manfaat + ajakan cek keranjang kuning/klik link. Hashtag relevan produk (bukan #fyp). 3-6 hashtag.\n` +
+      `- tiktok: hook-y, relate, trendi, ada CTA follow/cek keranjang. Wajib ada #fyp + hashtag produk. 5-8 hashtag.\n` +
+      `- fb: lebih storytelling/relate buat emak-emak & umum, ajakan komen/share. Hashtag secukupnya. 3-5 hashtag.\n` +
+      `JUJUR: jangan ngarang klaim medis/BPOM/garansi palsu.\n` +
+      `Balas JSON: {"shopee":{"caption":"...","hashtags":["#.."]},"tiktok":{"caption":"...","hashtags":["#.."]},"fb":{"caption":"...","hashtags":["#.."]}}`;
+    const plat = () => ({ type: Type.OBJECT, properties: { caption: { type: Type.STRING }, hashtags: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ["caption", "hashtags"] });
+    const response = await generateWithFallback({
+      contents: prompt,
+      config: { responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { shopee: plat(), tiktok: plat(), fb: plat() }, required: ["shopee", "tiktok", "fb"] } },
+    });
+    const o = JSON.parse(response.text || "{}");
+    const norm = (p: any) => ({ caption: (p?.caption || "").toString().trim(), hashtags: (Array.isArray(p?.hashtags) ? p.hashtags : []).map((h: any) => h.toString().trim()).filter(Boolean) });
+    return res.json({ shopee: norm(o.shopee), tiktok: norm(o.tiktok), fb: norm(o.fb) });
+  } catch (error: any) {
+    console.warn("Error caption:", error?.message || error);
+    const nm = (req.body?.productName || "produk ini").toString().trim();
+    const base = `Cobain ${nm} — worth it banget! Cek keranjang kuning ya 🛒`;
+    return res.json({
+      isFallback: true,
+      shopee: { caption: base, hashtags: [`#${nm.replace(/\s+/g, "")}`, "#racunshopee", "#shopeehaul", "#affiliate"] },
+      tiktok: { caption: `${base} #fyp`, hashtags: ["#fyp", "#fypシ", `#${nm.replace(/\s+/g, "")}`, "#racuntiktok", "#tiktokshop"] },
+      fb: { caption: `Akhirnya nemu ${nm} yang cocok! Ada yang udah coba juga? Komen dong 👇`, hashtags: [`#${nm.replace(/\s+/g, "")}`, "#reels", "#rekomendasi"] },
+    });
+  }
+});
+
 app.post("/api/translate-prompt", async (req, res) => {
   try {
     const text = (req.body?.text || "").toString().trim().slice(0, 2000);

@@ -992,6 +992,7 @@ export default function App() {
     return `Create ONE continuous vertical 9:16 photorealistic affiliate video CLIP (~${pDur} seconds) — PART ${partNum}/${totalParts} of a video about ONE product only: ${pName}.
 ${connect}
 CRITICAL PRODUCT ACCURACY: the product MUST be an EXACT REPLICA of the attached reference image — same tube/bottle color, label text, typography, logo and design; do NOT recolor, redesign or make it generic/white.
+NO LIP-SYNC / NO DIALOGUE: the audio is a SEPARATE voice-over — the creator must NEVER appear to talk or lip-sync to the camera; keep their mouth closed or a gentle natural smile (never mid-speech); prioritize b-roll of the product, hands and texture over close-ups of a talking face; convey the message through on-screen text, not lip movement.
 Single continuous take through these beats:
 ${beats}
 Keep the SAME creator identity, lighting mood and visual style, and a consistent camera distance so the two parts blend seamlessly. Final: one ~${pDur}-second clip, 9:16 vertical, photorealistic 8k, smooth motion.`;
@@ -1061,6 +1062,7 @@ Keep the SAME creator identity, lighting mood and visual style, and a consistent
       .join("\n");
     return `Create ONE short continuous vertical 9:16 photorealistic affiliate video (~${dur} seconds) about ONE product only: ${pName}.
 CRITICAL PRODUCT ACCURACY: The product MUST be an EXACT REPLICA of the ATTACHED REFERENCE IMAGE — copy the exact tube/bottle color, label text, typography, logo and overall design pixel-for-pixel. Do NOT recolor, redesign, restyle, or invent a different-looking product; do NOT make it white/generic if the reference is colored. If several products are in the reference, use ONLY "${pName}". Keep it identical and clearly visible in every beat; one product per video.
+NO LIP-SYNC / NO DIALOGUE: the audio is a SEPARATE voice-over, not spoken by anyone on screen — the creator must NEVER appear to talk or lip-sync to the camera; keep their mouth closed or a gentle natural smile (never mid-speech); prioritize b-roll of the product, hands, texture and application over close-ups of a talking face; convey the message through on-screen text, not lip movement.
 IMPORTANT: output must be ONE seamless ~${dur}s video from start to finish — a single continuous take that smoothly transitions through three beats:
 ${beats}
 Keep the SAME creator identity (if a person appears), lighting mood and visual style across the whole video. Overall aesthetic: ${item.visualAesthetic || "bright cinematic studio, photorealistic 8k"}. Final output: a single continuous ~${dur}-second video, 9:16 vertical, photorealistic 8k, smooth motion.`;

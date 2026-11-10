@@ -2690,13 +2690,6 @@ Keep the SAME creator identity (if a person appears), lighting mood and visual s
                 <LogOut className="w-4 h-4 text-rose-500" />
                 <span>Keluar</span>
               </button>
-
-              <div className="flex items-center gap-1.5 text-[11px] bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800/80">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-slate-300 font-mono font-medium">Pengaturan API</span>
-                <span className="text-slate-500">•</span>
-                <span className="text-emerald-400 font-bold">AKTIF</span>
-              </div>
             </div>
 
           </div>
